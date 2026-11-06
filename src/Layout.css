@@ -1,0 +1,118 @@
+/* src/Layout.css */
+
+.quest-layout {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Sidebar now uses standard flex layout instead of fixed positioning */
+.quest-sidebar {
+  width: 260px;
+  flex-shrink: 0; /* Prevents sidebar from squishing */
+  background-color: var(--quest-surface);
+  border-right: 1px solid var(--quest-border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 40;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Slide it entirely off the screen to the left */
+.quest-sidebar.collapsed {
+  margin-left: -260px;
+}
+
+.quest-brand {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--quest-border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.quest-logo-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background-color: var(--quest-primary);
+  color: var(--quest-surface);
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quest-nav-list {
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.quest-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--radius-btn);
+  color: var(--quest-text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quest-nav-item:hover { 
+  background-color: var(--quest-bg-secondary); 
+  color: var(--quest-text-primary); 
+}
+
+.quest-nav-item.active { 
+  background-color: var(--quest-primary-light); 
+  color: var(--quest-primary); 
+  font-weight: 600; 
+}
+
+/* Main Wrapper now naturally flexes and fills the remaining space */
+.quest-main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* CRITICAL: Prevents charts and tables from blowing out the layout and crashing the app */
+  transition: width 0.3s ease;
+}
+
+.quest-topbar {
+  height: 68px;
+  background-color: var(--quest-surface);
+  border-bottom: 1px solid var(--quest-border);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.quest-content {
+  padding: 32px;
+  max-width: 1440px;
+  width: 100%;
+  margin: 0 auto;
+}

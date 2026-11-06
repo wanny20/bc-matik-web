@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+
+:root {
+  --quest-primary: #9E0B03;
+  --quest-primary-hover: #7F0902;
+  --quest-primary-light: #FCEAE9;
+  --quest-bg-main: #F8FAFC;
+  --quest-surface: #FFFFFF;
+  --quest-bg-secondary: #F1F5F9;
+  --quest-border: #E2E8F0;
+  --quest-text-primary: #1E293B;
+  --quest-text-secondary: #64748B;
+  --quest-text-muted: #94A3B8;
+  --quest-success: #16A34A;
+  --quest-success-bg: #DCFCE7;
+  --quest-warning: #F59E0B;
+  --quest-warning-bg: #FEF3C7;
+  --quest-danger: #DC2626;
+  --quest-danger-bg: #FEE2E2;
+  --quest-info: #2563EB;
+  --quest-info-bg: #DBEAFE;
+  
+  --font-heading: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  
+  --radius-card: 16px;
+  --radius-btn: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--quest-bg-main);
+  color: var(--quest-text-primary);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6, .outfit-number {
+  font-family: var(--font-heading);
+  color: var(--quest-text-primary);
+  margin-top: 0;
+  letter-spacing: -0.02em;
+}

@@ -1,0 +1,55 @@
+/* src/components/StaffDashboard.css */
+
+.quest-card {
+  background-color: var(--quest-surface);
+  border: 1px solid var(--quest-border);
+  border-radius: var(--radius-card);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.03);
+  padding: 24px;
+}
+
+.quest-card-clay {
+  background-color: var(--quest-surface);
+  border: 1px solid #F5D0CE;
+  border-radius: var(--radius-card);
+  box-shadow: 0 10px 25px -5px rgba(158, 11, 3, 0.08), inset 0 -3px 6px rgba(15, 23, 42, 0.03), inset 0 2px 4px rgba(255, 255, 255, 0.9);
+  padding: 32px;
+}
+
+.quest-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: var(--radius-btn);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.quest-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.quest-btn-primary { background-color: var(--quest-primary); color: #FFFFFF; }
+.quest-btn-primary:hover:not(:disabled) { background-color: var(--quest-primary-hover); transform: translateY(-1px); }
+.quest-btn-success { background-color: var(--quest-success); color: #FFFFFF; }
+.quest-btn-warning { background-color: var(--quest-warning); color: #FFFFFF; }
+.quest-btn-danger { background-color: var(--quest-danger-bg); color: var(--quest-danger); border-color: #FECACA; }
+.quest-btn-outline { background-color: var(--quest-surface); color: var(--quest-text-primary); border-color: var(--quest-border); }
+.quest-btn-outline:hover:not(:disabled) { background-color: var(--quest-bg-secondary); }
+
+.quest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-primary { background-color: var(--quest-primary-light); color: var(--quest-primary); }
+.badge-success { background-color: var(--quest-success-bg); color: var(--quest-success); }
+.badge-warning { background-color: var(--quest-warning-bg); color: #B45309; }
+.badge-info { background-color: var(--quest-info-bg); color: var(--quest-info); }
