@@ -7,6 +7,25 @@ import { ArrowRight, X, KeyRound } from 'lucide-react';
 import { useUI } from './UIContext';
 import './WebLogin.css';
 
+// Anti-Scripting Email Sanitizer: Allows ONLY a-z, 0-9, @, ., _, and - (Max 1 '@')
+export const sanitizeEmailInput = (raw) => {
+  let cleaned = (raw || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9@._-]/g, '') // Strip all XSS/scripting symbols: + ( ) < > ' " ; / \ spaces
+    .replace(/\.{2,}/g, '.');      // Prevent consecutive dots (..)
+
+  // Ensure at most one '@' symbol can exist
+  const parts = cleaned.split('@');
+  if (parts.length > 2) {
+    cleaned = parts[0] + '@' + parts.slice(1).join('');
+  }
+  return cleaned.slice(0, 80);
+};
+
+export const isValidEmailFormat = (emailStr) => {
+  return /^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test((emailStr || '').trim());
+};
+
 export default function WebLogin({ setRole, setOffice }) {
   const { showToast } = useUI();
   const [email, setEmail] = useState('');
@@ -24,10 +43,16 @@ export default function WebLogin({ setRole, setOffice }) {
   const navigate = useNavigate();
 
   const validateField = (field, value) => {
-    if (!value.trim()) {
+    const cleanVal = value.trim();
+    if (!cleanVal) {
       setErrors(prev => ({
         ...prev,
         [field]: field === 'email' ? 'Email Address is required' : 'Password is required'
+      }));
+    } else if (field === 'email' && !isValidEmailFormat(cleanVal)) {
+      setErrors(prev => ({
+        ...prev,
+        email: 'Please enter a valid email address (letters, numbers, @, ., _, - only)'
       }));
     }
   };
@@ -35,14 +60,21 @@ export default function WebLogin({ setRole, setOffice }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     const newErrors = {};
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = sanitizeEmailInput(email).trim();
 
-    if (!cleanEmail) newErrors.email = 'Email Address is required';
-    if (!password.trim()) newErrors.password = 'Password is required';
+    if (!cleanEmail) {
+      newErrors.email = 'Email Address is required';
+    } else if (!isValidEmailFormat(cleanEmail)) {
+      newErrors.email = 'Please enter a valid email address (e.g. registrar@bc.edu.ph)';
+    }
+
+    if (!password.trim()) {
+      newErrors.password = 'Password is required';
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      showToast('Please enter your assigned email and password.', 'error', 'Missing Credentials');
+      showToast('Please enter a valid email address and password.', 'error', 'Invalid Credentials');
       return;
     }
 
@@ -88,15 +120,15 @@ export default function WebLogin({ setRole, setOffice }) {
 
         if (userData.role === 'admin') {
           showToast('Welcome back, Super Administrator.', 'success', 'Authentication Successful');
-          navigate('/admin');
+          navigate('/admin', { replace: true });
         } else if (userData.role === 'mini_admin') {
           setOffice(userData.assigned_office);
           showToast(`Signed in as ${userData.assigned_office} Mini Admin.`, 'success', 'Mini Admin Authenticated');
-          navigate('/admin');
+          navigate('/admin', { replace: true });
         } else if (userData.role === 'staff') {
           setOffice(userData.assigned_office);
           showToast(`Signed in to ${userData.assigned_office} terminal.`, 'success', 'Staff Authenticated');
-          navigate('/staff');
+          navigate('/staff', { replace: true });
         } else {
           showToast('Account role is not authorized for the web portal.', 'error', 'Access Denied');
           await auth.signOut();
@@ -113,9 +145,13 @@ export default function WebLogin({ setRole, setOffice }) {
 
   const handleForgotPassword = async (e) => {
     e.preventDefault();
-    const cleanReset = resetEmail.toLowerCase().trim();
+    const cleanReset = sanitizeEmailInput(resetEmail).trim();
     if (!cleanReset) {
       setResetError('Email Address is required');
+      return;
+    }
+    if (!isValidEmailFormat(cleanReset)) {
+      setResetError('Please enter a valid email address');
       return;
     }
     setIsSendingReset(true);
@@ -191,12 +227,15 @@ export default function WebLogin({ setRole, setOffice }) {
               <div className="bc-login-input-wrap">
                 <input
                   type="email"
+                  maxLength={80}
+                  autoComplete="username"
                   className={`bc-login-input ${errors.email ? 'input-error' : ''}`}
                   placeholder="registrar@bc.edu.ph"
                   value={email}
                   onBlur={() => validateField('email', email)}
                   onChange={(e) => {
-                    setEmail(e.target.value);
+                    const sanitized = sanitizeEmailInput(e.target.value);
+                    setEmail(sanitized);
                     if (errors.email) setErrors({ ...errors, email: '' });
                   }}
                 />
@@ -211,6 +250,8 @@ export default function WebLogin({ setRole, setOffice }) {
               <div className="bc-login-input-wrap">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  maxLength={64}
+                  autoComplete="current-password"
                   className={`bc-login-input ${errors.password ? 'input-error' : ''}`}
                   style={{ paddingRight: '74px' }}
                   placeholder="Enter your password"
@@ -284,11 +325,12 @@ export default function WebLogin({ setRole, setOffice }) {
                 </label>
                 <input
                   type="email"
+                  maxLength={80}
                   className={`bc-login-input ${resetError ? 'input-error' : ''}`}
                   placeholder="Enter your registered BC email"
                   value={resetEmail}
                   onChange={(e) => {
-                    setResetEmail(e.target.value);
+                    setResetEmail(sanitizeEmailInput(e.target.value));
                     if (resetError) setResetError('');
                   }}
                 />

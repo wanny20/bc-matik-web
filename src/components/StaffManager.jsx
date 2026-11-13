@@ -1235,9 +1235,10 @@ export default function StaffManager({ setAdminSection }) {
                     value={email} 
                     onBlur={() => handleBlur('email', email, 'Staff Email Address')}
                     onChange={e => {
-                      setEmail(e.target.value);
+                      const safeEmail = e.target.value.toLowerCase().replace(/[^a-z0-9@._-]/g, '').slice(0, 80);
+                      setEmail(safeEmail);
                       if (errors.email) setErrors({ ...errors, email: '' });
-                    }} 
+                    }}
                   />
                 </div>
                 {errors.email && <span className="quest-error-text">{errors.email}</span>}
