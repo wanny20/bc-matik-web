@@ -6,199 +6,252 @@
   min-height: 100vh;
   width: 100%;
   background-color: #F8FAFC;
-  font-family: var(--font-body, 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif);
+  overflow: hidden;
 }
 
 /* ==========================================
-   LEFT PANEL: BRANDING & HERO TYPOGRAPHY
+   LEFT BRANDING & HERO PANEL (ANIMATED)
    ========================================== */
 .bc-login-left {
   position: relative;
-  background: linear-gradient(145deg, #800802 0%, #9E0B03 55%, #6B0601 100%);
+  background: linear-gradient(145deg, #9E0B03 0%, #800802 55%, #5E0501 100%);
   color: #FFFFFF;
-  padding: 48px 64px;
+  padding: 44px 56px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
 }
 
-/* Decorative Geometric Circles (Matches QBorrow Reference) */
+/* Ambient Floating Top-Right Circle */
 .bc-login-shape-top {
   position: absolute;
-  top: -80px;
-  right: -80px;
-  width: 320px;
-  height: 320px;
+  top: -95px;
+  right: -85px;
+  width: 340px;
+  height: 340px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.07);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.03) 70%);
   pointer-events: none;
+  animation: bcFloatTopShape 8s ease-in-out infinite alternate;
 }
 
+/* Ambient Floating Bottom-Left Hollow Ring */
 .bc-login-shape-bottom {
   position: absolute;
-  bottom: 60px;
-  left: -110px;
-  width: 280px;
-  height: 280px;
+  bottom: -120px;
+  left: -120px;
+  width: 390px;
+  height: 390px;
   border-radius: 50%;
-  border: 36px solid rgba(255, 255, 255, 0.06);
+  border: 46px solid rgba(255, 255, 255, 0.055);
   pointer-events: none;
+  animation: bcFloatBottomShape 10s ease-in-out infinite alternate;
 }
 
+/* Top-Left Brand Header Slide-Down */
 .bc-login-brand-header {
   position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  opacity: 0;
+  animation: bcFadeSlideDown 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.05s forwards;
 }
 
 .bc-login-logo-box {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background-color: #FFFFFF;
-  color: #9E0B03;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 900;
-  font-size: 18px;
-  letter-spacing: -0.03em;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  border: 1.5px solid rgba(250, 204, 21, 0.7);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bc-login-brand-header:hover .bc-login-logo-box {
+  transform: scale(1.07) rotate(-3deg);
 }
 
 .bc-login-brand-name {
-  font-size: 20px;
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  font-size: 21px;
   font-weight: 800;
-  color: #FFFFFF;
   letter-spacing: -0.02em;
+  color: #FFFFFF;
 }
 
+/* Center Hero Typography Container */
 .bc-login-hero-content {
   position: relative;
   z-index: 2;
   max-width: 520px;
   margin: auto 0;
-  padding: 32px 0;
 }
 
 .bc-login-access-pill {
-  display: inline-block;
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   color: #FFFFFF;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 7px 16px;
-  border-radius: 999px;
   margin-bottom: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  animation: bcHeroWordSpring 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.12s forwards;
 }
 
 .bc-login-hero-headline {
   font-family: var(--font-heading, 'Outfit', sans-serif);
   font-size: clamp(54px, 6vw, 76px);
-  font-weight: 900;
-  line-height: 0.98;
+  font-weight: 800;
+  line-height: 1.02;
   letter-spacing: -0.03em;
-  margin: 0 0 24px 0;
+  margin: 0 0 22px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Staggered Kinetic Entrance for Queue. / Guide. / Serve. */
+.bc-login-hero-headline span {
+  display: block;
+  opacity: 0;
+  transform: translateX(-42px);
+}
+
+.bc-login-hero-headline span:nth-child(1) {
+  animation: bcHeroWordSpring 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.22s forwards;
+}
+
+.bc-login-hero-headline span:nth-child(2) {
+  animation: bcHeroWordSpring 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.36s forwards;
+}
+
+.bc-login-hero-headline span:nth-child(3) {
+  animation: bcHeroWordSpring 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.50s forwards;
 }
 
 .bc-login-hero-headline .accent-gold {
   color: #FACC15;
-  display: block;
+  text-shadow: 0 8px 28px rgba(250, 204, 21, 0.22);
 }
 
 .bc-login-hero-headline .accent-white {
   color: #FFFFFF;
-  display: block;
 }
 
 .bc-login-hero-subtext {
-  font-size: 15px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.88);
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.86);
   margin: 0;
-  font-weight: 500;
   max-width: 460px;
+  opacity: 0;
+  animation: bcFadeSlideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.64s forwards;
 }
 
+/* Bottom Role Pills Stagger & Hover Lift */
 .bc-login-role-pills {
   position: relative;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  opacity: 0;
+  animation: bcFadeSlideUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.76s forwards;
 }
 
 .bc-login-role-pill {
-  padding: 8px 18px;
+  padding: 7px 16px;
   border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #FFFFFF;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(4px);
+  transition: all 0.22s ease;
+  cursor: default;
+}
+
+.bc-login-role-pill:hover {
+  background-color: rgba(250, 204, 21, 0.18);
+  border-color: #FACC15;
+  color: #FACC15;
+  transform: translateY(-2px);
 }
 
 /* ==========================================
-   RIGHT PANEL: ELEVATED FORM CARD
+   RIGHT LOGIN CARD PANEL (ANIMATED)
    ========================================== */
 .bc-login-right {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px 32px;
-  background: radial-gradient(circle at top right, #FEF3C7 0%, #F8FAFC 45%, #F1F5F9 100%);
+  padding: 36px;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(254, 240, 138, 0.38) 0%, transparent 45%),
+    radial-gradient(circle at 15% 88%, rgba(252, 234, 233, 0.5) 0%, transparent 50%),
+    #F8FAFC;
 }
 
 .bc-login-card {
   width: 100%;
-  max-width: 460px;
-  background: #FFFFFF;
-  border-radius: 24px;
-  padding: 44px 40px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.03);
+  max-width: 420px;
+  background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
+  border-radius: 24px;
+  padding: 40px 36px;
+  box-shadow:
+    0 24px 48px -12px rgba(15, 23, 42, 0.08),
+    0 4px 12px -2px rgba(15, 23, 42, 0.03);
+  opacity: 0;
+  animation: bcCardEntrance 0.75s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
 }
 
 .bc-login-card-title {
   font-family: var(--font-heading, 'Outfit', sans-serif);
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 800;
   color: #0F172A;
-  margin: 0 0 8px 0;
+  margin: 0 0 6px 0;
   letter-spacing: -0.02em;
 }
 
 .bc-login-card-subtitle {
-  font-size: 14px;
+  font-size: 13.5px;
   color: #64748B;
   line-height: 1.5;
   margin: 0 0 28px 0;
-  font-weight: 500;
 }
 
 .bc-login-field-group {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
+  opacity: 0;
+  animation: bcFadeSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.38s forwards;
+}
+
+.bc-login-field-group:nth-of-type(2) {
+  animation-delay: 0.46s;
 }
 
 .bc-login-label {
   display: block;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #0F172A;
-  margin-bottom: 8px;
+  text-transform: uppercase;
+  color: #334155;
+  margin-bottom: 7px;
 }
 
 .bc-login-input-wrap {
@@ -209,40 +262,38 @@
 
 .bc-login-input {
   width: 100%;
-  padding: 14px 16px;
-  font-size: 14.5px;
+  padding: 13px 16px;
+  font-size: 14px;
+  font-family: inherit;
   color: #0F172A;
-  background-color: #FFFFFF;
+  background-color: #F8FAFC;
   border: 1.5px solid #E2E8F0;
   border-radius: 12px;
   outline: none;
-  transition: all 0.18s ease;
-  font-family: inherit;
+  transition: all 0.2s ease;
 }
 
-.bc-login-input::placeholder {
-  color: #94A3B8;
+.bc-login-input:hover {
+  border-color: #CBD5E1;
+  background-color: #FFFFFF;
 }
 
 .bc-login-input:focus {
+  background-color: #FFFFFF;
   border-color: #9E0B03;
-  box-shadow: 0 0 0 3px rgba(158, 11, 3, 0.1);
-}
-
-.bc-login-input.input-error {
-  border-color: #DC2626;
-  background-color: #FEF2F2;
+  box-shadow: 0 0 0 4px rgba(158, 11, 3, 0.1);
+  transform: translateY(-1px);
 }
 
 .bc-login-show-btn {
   position: absolute;
   right: 10px;
-  padding: 6px 12px;
+  padding: 5px 11px;
   border-radius: 999px;
   border: 1px solid #E2E8F0;
-  background-color: #F8FAFC;
-  color: #9E0B03;
-  font-size: 11px;
+  background-color: #FFFFFF;
+  color: #0F172A;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -250,15 +301,17 @@
 }
 
 .bc-login-show-btn:hover {
+  border-color: #9E0B03;
+  color: #9E0B03;
   background-color: #FCEAE9;
-  border-color: #F5D0CE;
 }
 
 .bc-login-forgot-row {
   display: flex;
   justify-content: flex-end;
-  margin-top: -6px;
-  margin-bottom: 24px;
+  margin: -4px 0 22px 0;
+  opacity: 0;
+  animation: bcFadeSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.52s forwards;
 }
 
 .bc-login-forgot-btn {
@@ -266,25 +319,27 @@
   border: none;
   padding: 0;
   color: #9E0B03;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .bc-login-forgot-btn:hover {
   color: #7A0802;
+  text-decoration: underline;
 }
 
+/* Primary Submit Button with Sliding Arrow Animation */
 .bc-login-submit-btn {
   width: 100%;
-  height: 54px;
-  border: none;
+  padding: 14px 22px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #9E0B03 0%, #7A0802 100%);
+  border: none;
+  background: linear-gradient(135deg, #9E0B03 0%, #7F0902 100%);
   color: #FFFFFF;
-  font-size: 14px;
+  font-family: var(--font-heading, 'Outfit', sans-serif);
+  font-size: 13.5px;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -293,17 +348,24 @@
   justify-content: center;
   gap: 12px;
   cursor: pointer;
-  box-shadow: 0 10px 24px rgba(158, 11, 3, 0.28);
-  transition: all 0.2s ease;
+  box-shadow: 0 10px 22px -5px rgba(158, 11, 3, 0.38);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 0;
+  animation: bcFadeSlideUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.58s forwards;
 }
 
 .bc-login-submit-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(158, 11, 3, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 28px -6px rgba(158, 11, 3, 0.48);
+  background: linear-gradient(135deg, #B00D04 0%, #8A0802 100%);
+}
+
+.bc-login-submit-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
 }
 
 .bc-login-submit-btn:disabled {
-  opacity: 0.7;
+  opacity: 0.65;
   cursor: not-allowed;
 }
 
@@ -311,27 +373,101 @@
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.18);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
 }
 
-/* Responsive Mobile / Tablet Stack */
-@media (max-width: 960px) {
+.bc-login-submit-btn:hover:not(:disabled) .bc-login-arrow-circle {
+  transform: translateX(5px);
+  background-color: rgba(250, 204, 21, 0.28);
+}
+
+/* ==========================================
+   KEYFRAME DEFINITIONS
+   ========================================== */
+@keyframes bcHeroWordSpring {
+  0% {
+    opacity: 0;
+    transform: translateX(-44px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes bcFadeSlideDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-22px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bcFadeSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bcCardEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bcFloatTopShape {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(-18px, 22px) scale(1.07);
+  }
+}
+
+@keyframes bcFloatBottomShape {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(24px, -18px) scale(1.05);
+  }
+}
+
+/* ==========================================
+   RESPONSIVE BREAKPOINTS
+   ========================================== */
+@media (max-width: 920px) {
   .bc-login-split-wrapper {
     grid-template-columns: 1fr;
   }
+
   .bc-login-left {
-    padding: 36px 28px;
+    padding: 32px 28px;
+    min-height: 360px;
   }
+
   .bc-login-hero-headline {
-    font-size: 48px;
+    font-size: 46px;
   }
+
   .bc-login-right {
-    padding: 32px 20px;
-  }
-  .bc-login-card {
-    padding: 32px 24px;
+    padding: 28px 20px 44px;
   }
 }
