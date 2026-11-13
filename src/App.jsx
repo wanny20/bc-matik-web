@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, getDocs, onSnapshot, query, where, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, onSnapshot, query, where, deleteDoc, doc } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 import OfficeManager from './components/OfficeManager';
 import StaffDashboard from './components/StaffDashboard';
@@ -90,17 +90,77 @@ function AppContent() {
     });
   };
 
+// 1. Persistent Auth & Role Guard (Restores role & office on F5 refresh or URL change)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) {
+        setUser(null);
         setRole(null);
         setAssignedOffice(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const cleanEmail = (currentUser.email || '').toLowerCase().trim();
+        let userData = null;
+
+        if (cleanEmail) {
+          const emailDocSnap = await getDoc(doc(db, 'users', cleanEmail));
+          if (emailDocSnap.exists()) {
+            userData = emailDocSnap.data();
+          }
+        }
+
+        if (!userData) {
+          const uidDocSnap = await getDoc(doc(db, 'staff_users', currentUser.uid));
+          if (uidDocSnap.exists()) {
+            userData = uidDocSnap.data();
+          }
+        }
+
+        if (!userData && cleanEmail) {
+          const qSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanEmail)));
+          if (!qSnap.empty) {
+            userData = qSnap.docs[0].data();
+          }
+        }
+
+        if (userData && (userData.role === 'admin' || userData.status !== 'disabled')) {
+          setUser(currentUser);
+          setRole(userData.role);
+          setAssignedOffice(userData.assigned_office || null);
+        } else {
+          // Account disabled or unauthorized
+          await signOut(auth);
+          setUser(null);
+          setRole(null);
+          setAssignedOffice(null);
+        }
+      } catch (err) {
+        console.error('Auth Guard verification error:', err);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
+
+  // 2. Browser Back-Button Lock (Prevents logged-in users from backing out to the Login page)
+  useEffect(() => {
+    if (!user || !role) return;
+    const targetPath = role === 'admin' || role === 'mini_admin' ? '/admin' : '/staff';
+    window.history.pushState(null, '', targetPath);
+
+    const handlePopState = () => {
+      if (window.location.pathname !== '/tv') {
+        window.history.pushState(null, '', targetPath);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [user, role]);
 
   const handleLogout = () => {
     setUserMenuOpen(false);
