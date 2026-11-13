@@ -46,3 +46,655 @@ h1, h2, h3, h4, h5, h6, .outfit-number {
   margin-top: 0;
   letter-spacing: -0.02em;
 }
+/* Print-Only Styles for Walk-in Tickets */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-ticket-container, .print-ticket-container * {
+    visibility: visible;
+  }
+  .print-ticket-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 20px;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+/* --- GLOBAL QUEST UI COMPONENTS --- */
+.quest-card, .quest-card-clay {
+  background-color: var(--quest-surface, #ffffff);
+  border: 1px solid var(--quest-border, #E2E8F0);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.quest-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--quest-border, #CBD5E1);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.quest-input:focus {
+  outline: none;
+  border-color: var(--quest-primary, #9E0B03);
+  box-shadow: 0 0 0 3px rgba(158, 11, 3, 0.1);
+}
+
+.quest-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.quest-btn-primary {
+  background-color: var(--quest-primary, #9E0B03);
+  color: white;
+}
+
+.quest-btn-primary:hover {
+  background-color: #7A0802;
+}
+
+.quest-btn-outline {
+  background-color: transparent;
+  border: 1px solid var(--quest-border, #CBD5E1);
+  color: var(--quest-text-primary, #1E293B);
+}
+
+.quest-btn-outline:hover {
+  background-color: #F8FAFC;
+}
+
+.quest-btn-success { background-color: #16A34A; color: white; }
+.quest-btn-danger { background-color: #DC2626; color: white; }
+
+/* Table Styles */
+.quest-table-container {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--quest-border, #E2E8F0);
+}
+
+.quest-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.quest-table th {
+  background-color: #F8FAFC;
+  padding: 14px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748B;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
+}
+
+.quest-table td {
+  padding: 16px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
+  vertical-align: middle;
+}
+
+.quest-table tr:last-child td { border-bottom: none; }
+
+/* Status Badges */
+.quest-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.badge-primary { background-color: #FCEAE9; color: #9E0B03; }
+.badge-warning { background-color: #FEF3C7; color: #B45309; }
+.badge-success { background-color: #DCFCE7; color: #16A34A; }
+
+/* --- FORM VALIDATION & MANDATORY FIELD STYLES --- */
+.quest-req-star {
+  color: #DC2626;
+  margin-left: 3px;
+  font-weight: 800;
+}
+
+.quest-input.input-error {
+  border-color: #DC2626 !important;
+  background-color: #FEF2F2;
+}
+
+.quest-input.input-error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+}
+
+.quest-error-text {
+  color: #DC2626;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 5px;
+  display: block;
+}
+/* --- GLOBAL QUEST UI/UX ENTERPRISE POLISH --- */
+
+/* Page Transition Animation */
+.quest-page-View {
+  animation: questPageFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes questPageFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cards & Elevation */
+.quest-card, .quest-card-clay {
+  background-color: var(--quest-surface, #ffffff);
+  border: 1px solid var(--quest-border, #E2E8F0);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.04), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.quest-card-clay {
+  border-top: 4px solid var(--quest-primary, #9E0B03);
+}
+
+/* Form Inputs */
+.quest-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--quest-border, #CBD5E1);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--quest-text-primary, #1E293B);
+  background-color: #FFFFFF;
+  transition: all 0.18s ease;
+  box-sizing: border-box;
+}
+
+.quest-input:hover {
+  border-color: #94A3B8;
+}
+
+.quest-input:focus {
+  outline: none;
+  border-color: var(--quest-primary, #9E0B03);
+  box-shadow: 0 0 0 3px rgba(158, 11, 3, 0.12);
+}
+
+/* Buttons with Tactile Micro-Interactions */
+.quest-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.quest-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.quest-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.quest-btn-primary {
+  background-color: var(--quest-primary, #9E0B03);
+  color: white;
+  box-shadow: 0 2px 6px rgba(158, 11, 3, 0.22);
+}
+
+.quest-btn-primary:hover:not(:disabled) {
+  background-color: #7A0802;
+  box-shadow: 0 4px 10px rgba(158, 11, 3, 0.28);
+}
+
+.quest-btn-outline {
+  background-color: #FFFFFF;
+  border: 1px solid var(--quest-border, #CBD5E1);
+  color: var(--quest-text-primary, #1E293B);
+}
+
+.quest-btn-outline:hover:not(:disabled) {
+  background-color: #F8FAFC;
+  border-color: #94A3B8;
+}
+
+.quest-btn-success { background-color: #16A34A; color: white; }
+.quest-btn-success:hover:not(:disabled) { background-color: #15803D; }
+
+.quest-btn-warning { background-color: #D97706; color: white; }
+.quest-btn-warning:hover:not(:disabled) { background-color: #B45309; }
+
+.quest-btn-danger { background-color: #DC2626; color: white; }
+.quest-btn-danger:hover:not(:disabled) { background-color: #B91C1C; }
+
+/* Interactive Data Tables */
+.quest-table-container {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--quest-border, #E2E8F0);
+  background: #FFFFFF;
+}
+
+.quest-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.quest-table th {
+  background-color: #F8FAFC;
+  padding: 14px 16px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #64748B;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
+  white-space: nowrap;
+}
+
+.quest-table td {
+  padding: 15px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
+  vertical-align: middle;
+  transition: background-color 0.12s ease;
+}
+
+.quest-table tbody tr:hover td {
+  background-color: #F8FAFC;
+}
+
+.quest-table tr:last-child td { border-bottom: none; }
+
+/* Status Badges */
+.quest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.badge-primary { background-color: #FCEAE9; color: #9E0B03; }
+.badge-warning { background-color: #FEF3C7; color: #B45309; }
+.badge-success { background-color: #DCFCE7; color: #15803D; }
+.badge-info    { background-color: #E0F2FE; color: #0369A1; }
+.badge-danger  { background-color: #FEE2E2; color: #DC2626; }
+
+/* Mandatory Asterisk & Inline Validation */
+.quest-req-star {
+  color: #DC2626;
+  margin-left: 3px;
+  font-weight: 800;
+}
+
+.quest-input.input-error {
+  border-color: #DC2626 !important;
+  background-color: #FEF2F2;
+}
+
+.quest-input.input-error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12) !important;
+}
+
+.quest-error-text {
+  color: #DC2626;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 5px;
+  display: block;
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* --- UNIFIED TABLE ACTION ICON BUTTONS (VIEW / EDIT / DELETE) --- */
+.quest-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.quest-icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.quest-icon-btn:active {
+  transform: scale(0.94);
+}
+
+.quest-icon-btn.view {
+  background-color: #E0F2FE;
+  color: #0284C7;
+}
+.quest-icon-btn.view:hover {
+  background-color: #BAE6FD;
+}
+
+.quest-icon-btn.edit {
+  background-color: #FEF3C7;
+  color: #D97706;
+}
+.quest-icon-btn.edit:hover {
+  background-color: #FDE68A;
+}
+
+.quest-icon-btn.delete {
+  background-color: #FEE2E2;
+  color: #DC2626;
+}
+.quest-icon-btn.delete:hover {
+  background-color: #FECACA;
+}
+
+.quest-icon-btn.power-on {
+  background-color: #DCFCE7;
+  color: #16A34A;
+}
+.quest-icon-btn.power-off {
+  background-color: #F1F5F9;
+  color: #475569;
+  border-color: #E2E8F0;
+}
+
+/* Modal Detail Key-Value Rows for View Modals */
+.quest-detail-box {
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.quest-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed #E2E8F0;
+  padding-bottom: 8px;
+  font-size: 13.5px;
+}
+
+.quest-detail-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.quest-detail-label {
+  color: #64748B;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.quest-detail-value {
+  color: #0F172A;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* Unified Cream/Gold Page Header Banner (Locked Side-by-Side Layout) */
+.quest-page-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 20px;
+  background-color: #FEF9E7;
+  border: 1px solid #FDE68A;
+  border-radius: 20px;
+  padding: 22px 28px;
+  margin-bottom: 24px;
+}
+
+.quest-page-banner > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.quest-page-banner h1 {
+  margin: 0 0 6px 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+.quest-page-banner p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.quest-back-pill-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  background-color: #FFFFFF;
+  color: #0F172A;
+  border: 1px solid #E2E8F0;
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04);
+  transition: all 0.15s ease;
+}
+
+.quest-back-pill-btn:hover {
+  background-color: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+/* Only stack vertically on narrow phone screens (< 640px) */
+@media (max-width: 640px) {
+  .quest-page-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+/* --- UNIVERSAL TABLE PAGINATION FOOTER --- */
+.quest-pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid #E2E8F0;
+  font-size: 13px;
+  color: #475569;
+}
+
+.quest-pagination-info {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.quest-pagination-info strong {
+  color: #0F172A;
+  font-weight: 800;
+}
+
+.quest-pagination-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.quest-pagination-size select {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid #CBD5E1;
+  background-color: #FFFFFF;
+  color: #0F172A;
+  font-weight: 700;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+}
+
+.quest-pagination-size select:focus {
+  border-color: var(--quest-primary, #9E0B03);
+}
+
+.quest-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quest-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #E2E8F0;
+  background-color: #FFFFFF;
+  color: #0F172A;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quest-page-btn.number {
+  min-width: 34px;
+  padding: 0 8px;
+}
+
+.quest-page-btn:hover:not(:disabled):not(.active) {
+  background-color: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+.quest-page-btn.active {
+  background-color: var(--quest-primary, #9E0B03);
+  border-color: var(--quest-primary, #9E0B03);
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(158, 11, 3, 0.22);
+}
+
+.quest-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Fix Sidebar Cutting Off When Scrolling Down Long Pages */
+.quest-layout {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+  background-color: var(--quest-bg-main, #F8FAFC);
+}
+
+.quest-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+  background-color: #FFFFFF;
+  border-right: 1px solid var(--quest-border, #E2E8F0);
+  z-index: 50;
+}
+
+.quest-main-wrapper {
+  flex: 1;
+  min-width: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.quest-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background-color: #FFFFFF;
+}

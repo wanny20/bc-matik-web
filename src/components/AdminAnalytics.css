@@ -1,0 +1,268 @@
+/* src/components/AdminAnalytics.css */
+
+.analytics-range-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #FFFFFF;
+  padding: 5px;
+  border-radius: 999px;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04);
+  flex-shrink: 0;
+}
+
+.analytics-range-pill {
+  border: none;
+  background: transparent;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.analytics-range-pill.active {
+  background-color: var(--quest-primary, #9E0B03);
+  color: #FFFFFF;
+}
+
+.analytics-sync-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #E2E8F0;
+  background-color: #F8FAFC;
+  color: #0F172A;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.analytics-sync-btn:hover {
+  background-color: #E2E8F0;
+}
+
+/* 4-Column Single Row Grid on Desktop (No Awkward 3+1 Wrapping) */
+.analytics-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 1100px) {
+  .analytics-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .analytics-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.analytics-metric-card {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.analytics-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 20px -5px rgba(15, 23, 42, 0.08);
+}
+
+.analytics-metric-label {
+  margin: 0;
+  font-size: 11px;
+  color: var(--quest-text-secondary, #64748B);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.analytics-metric-value {
+  margin: 2px 0 8px 0;
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--quest-text-primary, #0F172A);
+  line-height: 1.05;
+}
+
+.analytics-metric-sublabel {
+  margin: 0;
+  font-size: 12px;
+  color: #64748B;
+  font-weight: 600;
+}
+
+/* Live Campus Terminals Strip */
+.analytics-live-strip-card {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.analytics-strip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analytics-strip-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--quest-primary, #9E0B03);
+  text-transform: uppercase;
+}
+
+.analytics-strip-hint {
+  font-size: 12px;
+  color: #64748B;
+}
+
+.analytics-office-strip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  gap: 12px;
+}
+
+.analytics-office-mini-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+}
+
+.analytics-online-dot {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* Charts & Bottom Insights Grid */
+.analytics-charts-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 20px;
+  align-items: stretch;
+  margin-bottom: 20px;
+}
+
+.analytics-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: stretch;
+}
+
+@media (max-width: 960px) {
+  .analytics-charts-grid,
+  .analytics-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.analytics-panel-card {
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.analytics-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.analytics-panel-title {
+  margin: 0 0 3px 0;
+  font-size: 16.5px;
+  font-weight: 800;
+  color: var(--quest-text-primary, #0F172A);
+}
+
+.analytics-panel-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: #64748B;
+}
+
+.analytics-chart-wrapper {
+  height: 300px;
+  width: 100%;
+  position: relative;
+}
+
+.analytics-chart-inner {
+  position: absolute;
+  inset: 0;
+}
+
+.analytics-bottleneck-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.analytics-bottleneck-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+}
+
+.analytics-office-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #0F172A;
+}
+
+.analytics-load-bar-track {
+  width: 100%;
+  height: 6px;
+  background-color: #E2E8F0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.analytics-load-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+
+.analytics-activity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  gap: 10px;
+}
+
+.analytics-footnote {
+  font-size: 11.5px;
+  color: #64748B;
+  margin: 16px 0 0 0;
+  line-height: 1.5;
+  padding-top: 12px;
+  border-top: 1px dashed #E2E8F0;
+}

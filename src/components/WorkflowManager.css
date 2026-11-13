@@ -1,0 +1,99 @@
+/* src/components/WorkflowManager.css */
+.flow-container {
+  display: grid;
+  grid-template-columns: 1.2fr 2fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.flow-card {
+  background-color: var(--quest-surface);
+  border: 1px solid var(--quest-border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.flow-title {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 18px;
+  color: var(--quest-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-form-group {
+  margin-bottom: 16px;
+}
+
+.flow-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--quest-text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.flow-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background-color: var(--quest-bg-main);
+  border: 1px solid var(--quest-border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.flow-step-badge {
+  background-color: var(--quest-primary);
+  color: white;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  margin-right: 12px;
+}
+
+.flow-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.flow-item-card {
+  border: 1px solid var(--quest-border);
+  border-radius: 12px;
+  padding: 16px;
+  background-color: var(--quest-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.flow-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.flow-req-tag {
+  background-color: var(--quest-bg-secondary);
+  color: var(--quest-text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-block;
+  margin-right: 6px;
+  margin-top: 6px;
+}

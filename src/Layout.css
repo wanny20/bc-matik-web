@@ -3,37 +3,36 @@
 .quest-layout {
   display: flex;
   flex-direction: row;
-  min-height: 100vh;
+  height: 100vh;
   width: 100%;
-  overflow-x: hidden;
+  overflow: hidden;
+  background-color: var(--quest-bg-main, #F8FAFC);
 }
 
-/* Sidebar now uses standard flex layout instead of fixed positioning */
+/* Sidebar stays 100% locked to full screen height at all times */
 .quest-sidebar {
   width: 260px;
-  flex-shrink: 0; /* Prevents sidebar from squishing */
-  background-color: var(--quest-surface);
-  border-right: 1px solid var(--quest-border);
+  flex-shrink: 0;
+  background-color: var(--quest-surface, #FFFFFF);
+  border-right: 1px solid var(--quest-border, #E2E8F0);
   display: flex;
   flex-direction: column;
-  position: sticky;
-  top: 0;
   height: 100vh;
   z-index: 40;
   transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Slide it entirely off the screen to the left */
 .quest-sidebar.collapsed {
   margin-left: -260px;
 }
 
 .quest-brand {
   padding: 20px 24px;
-  border-bottom: 1px solid var(--quest-border);
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .quest-logo-mark {
@@ -59,6 +58,7 @@
   overflow-y: auto;
 }
 
+/* Standard Nav Item */
 .quest-nav-item {
   display: flex;
   align-items: center;
@@ -88,19 +88,87 @@
   font-weight: 600; 
 }
 
-/* Main Wrapper now naturally flexes and fills the remaining space */
+/* Sidebar Expandable Groups */
+.quest-nav-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-radius: var(--radius-btn);
+  color: var(--quest-text-secondary);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 2px;
+}
+
+.quest-nav-group:hover {
+  background-color: var(--quest-bg-secondary);
+  color: var(--quest-text-primary);
+}
+
+.quest-nav-group.active {
+  background-color: var(--quest-primary-light);
+  color: var(--quest-primary);
+  font-weight: 600;
+}
+
+.quest-nav-submenu {
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out;
+  max-height: 0;
+}
+
+.quest-nav-submenu.expanded {
+  max-height: 300px;
+}
+
+.quest-nav-subitem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 42px; 
+  border-radius: var(--radius-btn);
+  color: var(--quest-text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 13px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quest-nav-subitem:hover {
+  color: var(--quest-primary);
+}
+
+.quest-nav-subitem.active {
+  color: var(--quest-primary);
+  font-weight: 700;
+}
+
+/* Main Layout Wrapper (Dedicated Scroll Container) */
 .quest-main-wrapper {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0; /* CRITICAL: Prevents charts and tables from blowing out the layout and crashing the app */
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   transition: width 0.3s ease;
 }
 
+/* Topbar stays pinned at the top of the scrolling main wrapper */
 .quest-topbar {
   height: 68px;
-  background-color: var(--quest-surface);
-  border-bottom: 1px solid var(--quest-border);
+  flex-shrink: 0;
+  background-color: var(--quest-surface, #FFFFFF);
+  border-bottom: 1px solid var(--quest-border, #E2E8F0);
   padding: 0 32px;
   display: flex;
   align-items: center;
@@ -115,4 +183,5 @@
   max-width: 1440px;
   width: 100%;
   margin: 0 auto;
+  flex: 1;
 }

@@ -1,253 +1,253 @@
 import { useState, useEffect, useRef } from 'react';
-import { Volume2, VolumeX, QrCode, Tv } from 'lucide-react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { Volume2, VolumeX, QrCode, Tv, AlertTriangle } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
+import './PublicDisplay.css'; 
 
 export default function PublicDisplay() {
+  const [announcement, setAnnouncement] = useState('');
   const [calledTickets, setCalledTickets] = useState([]);
   const [activeTickets, setActiveTickets] = useState([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [lastAnnouncedId, setLastAnnouncedId] = useState(null);
-
-  // Track already-announced timestamps so we only speak newly called tickets
+  
+  // Dynamic Major Offices State
+  const [offices, setOffices] = useState([]);
+  const [loadingOffices, setLoadingOffices] = useState(true);
+  
   const announcedMapRef = useRef({});
 
-  // Voice Announcement Engine (Native Web Speech API)
   const speakTicket = (ticket) => {
     if (!soundEnabled || !('speechSynthesis' in window)) return;
-
-    window.speechSynthesis.cancel(); // Clear overlapping audio
-    const formattedNumber = ticket.queue_number.split('').join(' ');
-    const text = `Attention please. Ticket ${formattedNumber}, please proceed to ${ticket.target_office_id}, ${ticket.window_number || 'Window 1'}.`;
-
+    window.speechSynthesis.cancel();
+    const formattedNumber = (ticket.queue_number || '').split('').join(' ');
+    const text = `Attention please. Ticket ${formattedNumber}, please proceed to ${ticket.target_office_id}, ${ticket.window_number || 'Window 0'}.`;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.92;
     utterance.pitch = 1.05;
     window.speechSynthesis.speak(utterance);
   };
 
+  // 1. Listen for Global TV Announcements
+  useEffect(() => {
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setAnnouncement(data.tvAnnouncement || '');
+      }
+    });
+    return () => unsubSettings();
+  }, []);
+
+  // 2. Listen ONLY for Online MAJOR Offices & Auto-Generate Tokens (Minor Offices Excluded!)
+  useEffect(() => {
+    const q = query(collection(db, 'offices'), where('is_online', '==', true));
+    const unsubOffices = onSnapshot(q, (snapshot) => {
+      const uniqueMajorMap = new Map();
+
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        // Strictly include ONLY Major Offices on the Public Display
+        if (data.is_major === true && data.office_name) {
+          const cleanKey = data.office_name.trim().toLowerCase();
+          if (!uniqueMajorMap.has(cleanKey)) {
+            const tokenPrefix = data.office_name.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase();
+            uniqueMajorMap.set(cleanKey, {
+              id: docSnap.id,
+              name: data.office_name.trim(),
+              is_major: true,
+              token: `BC-ARRIVE-${tokenPrefix}`
+            });
+          }
+        }
+      });
+
+      const fetchedMajorOffices = Array.from(uniqueMajorMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+      
+      setOffices(fetchedMajorOffices);
+      setLoadingOffices(false);
+    });
+
+    return () => unsubOffices();
+  }, []);
+  
+  // 3. Listen for Ticket Updates
   useEffect(() => {
     const ticketsRef = collection(db, "tickets");
 
-    // 1. Listen to all currently CALLED tickets across campus
     const calledQuery = query(ticketsRef, where("status", "==", "called"));
     const unsubCalled = onSnapshot(calledQuery, (snapshot) => {
       const currentCalled = [];
       snapshot.docChanges().forEach((change) => {
         const docData = { id: change.doc.id, ...change.doc.data() };
         const calledTime = docData.timestamps?.called_at?.seconds || 0;
-
-        if (
-          (change.type === "added" || change.type === "modified") &&
-          announcedMapRef.current[docData.id] !== calledTime
-        ) {
+        if ((change.type === "added" || change.type === "modified") && announcedMapRef.current[docData.id] !== calledTime) {
           announcedMapRef.current[docData.id] = calledTime;
-          setLastAnnouncedId(docData.id);
           speakTicket(docData);
         }
       });
-
-      snapshot.docs.forEach((doc) => {
-        currentCalled.push({ id: doc.id, ...doc.data() });
-      });
+      snapshot.docs.forEach((d) => { currentCalled.push({ id: d.id, ...d.data() }); });
       setCalledTickets(currentCalled);
     });
 
-    // 2. Listen to all ACTIVE (waiting) tickets across campus
-    const activeQuery = query(ticketsRef, where("status", "==", "active"));
+    const activeQuery = query(ticketsRef, where("status", "in", ["active", "resolved_requirements"]));
     const unsubActive = onSnapshot(activeQuery, (snapshot) => {
-      const waiting = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const waiting = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       setActiveTickets(waiting);
     });
 
-    return () => {
-      unsubCalled();
-      unsubActive();
-    };
+    return () => { unsubCalled(); unsubActive(); };
   }, [soundEnabled]);
 
-  const offices = [
-    { name: "Accounting", token: "BC-ARRIVE-ACC" },
-    { name: "Cashier", token: "BC-ARRIVE-CSH" },
-    { name: "Registrar", token: "BC-ARRIVE-REG" }
-  ];
-
   return (
-    <div style={{ backgroundColor: '#001F3F', minHeight: '100vh', padding: '24px', color: 'white' }}>
-      {/* TV Header Bar */}
-      <header style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        backgroundColor: '#003366', 
-        padding: '16px 28px', 
-        borderRadius: '16px',
-        borderBottom: '4px solid #FFCC00',
-        marginBottom: '24px'
-      }}>
+    <div className="tv-wrapper">
+      <header className="tv-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Tv size={36} color="#FFCC00" />
+          <div className="tv-header-icon" style={{ overflow: 'hidden', padding: '4px', backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
+            <img
+              src="/LOGO.png"
+              alt="BC-Matik Logo"
+              style={{ width: '42px', height: '42px', objectFit: 'contain' }}
+              onError={(e) => {
+                if (!e.currentTarget.src.endsWith('/logo.png')) {
+                  e.currentTarget.src = '/logo.png';
+                }
+              }}
+            />
+          </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '28px', color: '#FFFFFF', letterSpacing: '1px' }}>
-              BICOL COLLEGE • LIVE QUEUE MONITOR
-            </h1>
-            <p style={{ margin: '4px 0 0 0', color: '#FFCC00', fontSize: '14px', fontWeight: 'bold' }}>
-              BC-Matik Smart Multi-Office Queuing & Guidance System
-            </p>
+            <h1 className="tv-header-title">BICOL COLLEGE • LIVE QUEUE MONITOR</h1>
+            <p className="tv-header-subtitle">BCMatik Smart Multi-Office Queuing & Guidance System</p>
           </div>
         </div>
 
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            backgroundColor: soundEnabled ? '#FFCC00' : '#455A64',
-            color: soundEnabled ? '#003366' : '#FFFFFF',
-            border: 'none',
-            padding: '12px 20px',
-            borderRadius: '12px',
-            fontWeight: 'bold',
-            cursor: 'pointer'
-          }}
+          className={`tv-sound-btn ${soundEnabled ? 'active' : 'muted'}`}
         >
           {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
           {soundEnabled ? 'Voice Audio: ON' : 'Voice Audio: MUTED'}
         </button>
       </header>
 
-      {/* 3-Column Office Display Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
-        {offices.map((office) => {
-          const nowServing = calledTickets.find((t) => t.target_office_id === office.name);
-          const upNextList = activeTickets
-            .filter((t) => t.target_office_id === office.name)
-            .slice(0, 4);
+      {/* Dynamic Announcement Marquee */}
+      {announcement && (
+        <div style={{ 
+          backgroundColor: 'var(--quest-warning-bg)', 
+          color: '#B45309', 
+          padding: '12px 24px', 
+          borderRadius: '12px', 
+          marginBottom: '24px',
+          display: 'flex', 
+          alignItems: 'center',
+          gap: '12px',
+          fontWeight: '700',
+          border: '1px solid #FDE68A',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          boxShadow: '0 4px 6px rgba(0,0,0,0.05)'
+        }}>
+          <span style={{ backgroundColor: '#F59E0B', color: 'white', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', flexShrink: 0 }}>CAMPUS ADVISORY</span>
+          <marquee scrollamount="6" style={{ fontSize: '18px', letterSpacing: '0.5px' }}>{announcement}</marquee>
+        </div>
+      )}
 
-          return (
-            <div key={office.name} style={{
-              backgroundColor: '#FFFFFF',
-              color: '#1C1B1F',
-              borderRadius: '20px',
-              overflow: 'hidden',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-            }}>
-              {/* Office Title Banner */}
-              <div style={{ backgroundColor: '#003366', color: 'white', padding: '16px', textAlign: 'center' }}>
-                <h2 style={{ margin: 0, fontSize: '24px', letterSpacing: '1px' }}>
-                  {office.name.toUpperCase()}
-                </h2>
-              </div>
+      {/* Dynamic Major Office Grid */}
+      {loadingOffices ? (
+        <div style={{ textAlign: 'center', padding: '100px 20px', color: 'var(--quest-text-secondary)' }}>
+          <Tv size={48} style={{ opacity: 0.2, marginBottom: '16px' }} />
+          <h2>Syncing Campus Layout...</h2>
+        </div>
+      ) : offices.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '100px 20px', backgroundColor: 'var(--quest-surface)', borderRadius: '24px', border: '1px dashed var(--quest-border)' }}>
+          <AlertTriangle size={48} color="var(--quest-text-muted)" style={{ marginBottom: '16px' }} />
+          <h2 style={{ color: 'var(--quest-text-secondary)', margin: 0 }}>No Major Service Offices Are Currently Online</h2>
+          <p style={{ color: 'var(--quest-text-muted)' }}>Waiting for system administrators to open Major Office service windows...</p>
+        </div>
+      ) : (
+        <div className="tv-grid">
+          {offices.map((office) => {
+            const nowServing = calledTickets.find((t) => t.target_office_id === office.name);
+            // Sort resolved_requirements first, then priority tickets, then activation timestamp
+            const upNextList = activeTickets
+              .filter((t) => t.target_office_id === office.name)
+              .sort((a, b) => {
+                if (a.status === 'resolved_requirements' && b.status !== 'resolved_requirements') return -1;
+                if (b.status === 'resolved_requirements' && a.status !== 'resolved_requirements') return 1;
+                if ((b.is_priority === true) !== (a.is_priority === true)) {
+                  return (b.is_priority === true) - (a.is_priority === true);
+                }
+                const timeA = a.timestamps?.activated_at?.toMillis?.() || 0;
+                const timeB = b.timestamps?.activated_at?.toMillis?.() || 0;
+                return timeA - timeB;
+              })
+              .slice(0, 5);
+            
+            const isServing = !!nowServing;
 
-              {/* Currently Serving Box */}
-              <div style={{ 
-                padding: '28px 16px', 
-                textAlign: 'center', 
-                backgroundColor: nowServing ? '#E8F5E9' : '#FAFAFA',
-                borderBottom: '2px solid #EEE'
-              }}>
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#666', letterSpacing: '1px' }}>
-                  NOW SERVING
-                </span>
-                <div style={{ 
-                  fontSize: '68px', 
-                  fontWeight: '900', 
-                  color: nowServing ? '#2E7D32' : '#B0BEC5',
-                  margin: '8px 0'
-                }}>
-                  {nowServing ? nowServing.queue_number : '---'}
+            return (
+              <div key={office.id} className="tv-card">
+                <div className="tv-card-banner" style={{ backgroundColor: 'var(--quest-primary, #9E0B03)' }}>
+                  <h2 style={{ color: '#FFFFFF', margin: 0 }}>{office.name.toUpperCase()}</h2>
                 </div>
-                <span style={{ 
-                  display: 'inline-block',
-                  backgroundColor: nowServing ? '#2E7D32' : '#E0E0E0',
-                  color: nowServing ? 'white' : '#757575',
-                  padding: '6px 16px',
-                  borderRadius: '20px',
-                  fontSize: '14px',
-                  fontWeight: 'bold'
-                }}>
-                  {nowServing ? (nowServing.window_number || 'Window 1') : 'Standby'}
-                </span>
-              </div>
 
-              {/* Up Next Waiting List */}
-              <div style={{ padding: '16px 24px', flexGrow: 1 }}>
-                <h4 style={{ margin: '0 0 12px 0', color: '#003366', borderBottom: '2px solid #EEE', paddingBottom: '8px' }}>
-                  WAITING IN HALLWAY ({upNextList.length})
-                </h4>
-                {upNextList.length === 0 ? (
-                  <p style={{ color: '#9E9E9E', fontSize: '14px', textAlign: 'center', margin: '20px 0' }}>
-                    No active tickets waiting
-                  </p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {upNextList.map((t, idx) => (
-                      <div key={t.id} style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '10px 14px',
-                        backgroundColor: idx === 0 ? '#E3F2FD' : '#F5F5F5',
-                        borderRadius: '10px',
-                        fontWeight: 'bold',
-                        fontSize: '18px',
-                        color: '#003366'
-                      }}>
-                        <span>{t.queue_number}</span>
-                        {t.is_priority && (
-                          <span style={{ backgroundColor: '#FFCC00', color: '#003366', fontSize: '11px', padding: '3px 8px', borderRadius: '8px' }}>
-                            PRIORITY
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                <div className={`tv-serving-box ${isServing ? 'active' : 'idle'}`}>
+                  <span className={`tv-serving-label ${isServing ? 'active' : 'idle'}`}>
+                    NOW SERVING
+                  </span>
+                  <div className={`outfit-number tv-serving-number ${isServing ? 'active' : 'idle'}`}>
+                    {isServing ? nowServing.queue_number : '---'}
                   </div>
-                )}
-              </div>
-
-              {/* Hallway Arrival Check-In QR Footer */}
-              <div style={{ 
-                backgroundColor: '#F4F7F9', 
-                padding: '16px', 
-                borderTop: '2px dashed #CFD8DC',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#003366', fontWeight: 'bold', fontSize: '14px' }}>
-                    <QrCode size={16} /> Hallway Arrival Check-In
-                  </div>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#546E7A' }}>
-                    Scan in BC-Matik App or enter token:
-                  </p>
-                  <code style={{ 
-                    display: 'inline-block',
-                    marginTop: '4px',
-                    backgroundColor: '#FFCC00', 
-                    color: '#003366', 
-                    padding: '2px 8px', 
-                    borderRadius: '6px', 
-                    fontWeight: 'bold',
-                    fontSize: '13px'
-                  }}>
-                    {office.token}
-                  </code>
+                  <span className={`tv-serving-window ${isServing ? 'active' : 'idle'}`}>
+                    {isServing ? (nowServing.window_number || 'Window 0') : 'Standby'}
+                  </span>
                 </div>
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${office.token}`} 
-                  alt={`${office.name} QR`}
-                  style={{ width: '72px', height: '72px', borderRadius: '8px', border: '2px solid #003366' }}
-                />
+
+                <div className="tv-waiting-container">
+                  <h4 className="tv-waiting-header">
+                    WAITING IN HALLWAY ({upNextList.length})
+                  </h4>
+                  {upNextList.length === 0 ? (
+                    <p className="tv-waiting-empty">No active tickets waiting</p>
+                  ) : (
+                    <div className="tv-waiting-list">
+                      {upNextList.map((t, idx) => {
+                        const isFirst = idx === 0;
+                        return (
+                          <div key={t.id} className={`tv-waiting-item ${isFirst ? 'first' : 'standard'}`}>
+                            <span className={`outfit-number tv-waiting-item-number ${isFirst ? 'first' : 'standard'}`}>
+                              {t.queue_number}
+                            </span>
+                            {t.is_priority && (
+                              <span className="tv-priority-badge">PRIORITY</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="tv-qr-footer">
+                  <div>
+                    <div className="tv-qr-label">
+                      <QrCode size={16} /> Arrival Check-In
+                    </div>
+                    <p className="tv-qr-text">Scan code or enter token:</p>
+                    <code className="tv-qr-token">{office.token}</code>
+                  </div>
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${office.token}`} 
+                    alt={`${office.name} QR`}
+                    className="tv-qr-image"
+                  />
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

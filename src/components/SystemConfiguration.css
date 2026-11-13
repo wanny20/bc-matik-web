@@ -1,0 +1,149 @@
+/* src/components/SystemConfiguration.css */
+.config-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.config-card {
+  background-color: var(--quest-surface);
+  border: 1px solid var(--quest-border);
+  border-top: 4px solid var(--quest-primary);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.config-danger-card {
+  background-color: var(--quest-surface);
+  border: 1px solid var(--quest-danger);
+  border-top: 4px solid var(--quest-danger);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  grid-column: 1 / -1;
+}
+
+.config-title {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--quest-text-primary);
+}
+
+.config-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--quest-text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.config-time-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.config-hint {
+  font-size: 12px;
+  color: var(--quest-text-muted);
+  margin-top: 12px;
+  line-height: 1.5;
+}
+/* Append to src/components/SystemConfiguration.css */
+.config-full-card {
+  background-color: var(--quest-surface);
+  border: 1px solid var(--quest-border);
+  border-top: 4px solid var(--quest-primary);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  grid-column: 1 / -1;
+}
+
+.config-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 16px;
+}
+
+.config-program-chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--quest-border);
+  background-color: var(--quest-bg-main);
+  color: var(--quest-text-secondary);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.config-program-chip:hover {
+  border-color: var(--quest-primary);
+}
+
+.config-program-chip.selected {
+  background-color: var(--quest-primary);
+  color: #FFFFFF;
+  border-color: var(--quest-primary);
+  box-shadow: 0 2px 6px rgba(158, 11, 3, 0.25);
+}
+
+.config-division-header {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--quest-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+/* Tactile Pill Button for "+ Select Dept" */
+.config-dept-select-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  background-color: #FFFFFF;
+  color: var(--quest-primary, #9E0B03);
+  border: 1.5px solid #F5D0CE;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+
+.config-dept-select-btn:hover {
+  background-color: #FCEAE9;
+  border-color: var(--quest-primary, #9E0B03);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(158, 11, 3, 0.12);
+}
+
+.config-dept-select-btn:active {
+  transform: scale(0.96);
+}
+
+.config-dept-select-btn.active {
+  background-color: #DCFCE7;
+  color: #15803D;
+  border-color: #86EFAC;
+}
+
+.config-dept-select-btn.active:hover {
+  background-color: #BBF7D0;
+  border-color: #16A34A;
+}
