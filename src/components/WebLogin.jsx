@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebaseConfig';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, X, KeyRound } from 'lucide-react';
+import { ArrowRight, X, KeyRound, Clock } from 'lucide-react';
 import { useUI } from './UIContext';
 import './WebLogin.css';
+
+const RESET_COOLDOWN_MS = 5 * 60 * 1000; // 5 Minutes (300 seconds)
+const RESET_COOLDOWN_KEY = 'bcmatik_web_reset_cooldown_until';
 
 // Anti-Scripting Email Sanitizer: Allows ONLY a-z, 0-9, @, ., _, and - (Max 1 '@')
 export const sanitizeEmailInput = (raw) => {
@@ -34,13 +37,47 @@ export default function WebLogin({ setRole, setOffice }) {
   const [errors, setErrors] = useState({});
   const [isSigningIn, setIsSigningIn] = useState(false);
 
-  // Forgot Password Modal States
+  // Forgot Password Modal & 5-Minute Rate-Limit Cooldown States
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetError, setResetError] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [cooldownUntilMs, setCooldownUntilMs] = useState(() => {
+    const saved = Number(localStorage.getItem(RESET_COOLDOWN_KEY) || '0');
+    return isNaN(saved) ? 0 : saved;
+  });
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
 
   const navigate = useNavigate();
+
+  // Live 1-Second Countdown Timer for Forgot Password Rate Limiting
+  useEffect(() => {
+    const updateRemaining = () => {
+      const diffMs = cooldownUntilMs - Date.now();
+      if (diffMs <= 0) {
+        setRemainingSeconds(0);
+        return false;
+      }
+      setRemainingSeconds(Math.ceil(diffMs / 1000));
+      return true;
+    };
+
+    if (!updateRemaining()) return;
+
+    const timer = setInterval(() => {
+      if (!updateRemaining()) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldownUntilMs]);
+
+  const formatCooldownMMSS = (totalSecs) => {
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
 
   const validateField = (field, value) => {
     const cleanVal = value.trim();
@@ -145,6 +182,19 @@ export default function WebLogin({ setRole, setOffice }) {
 
   const handleForgotPassword = async (e) => {
     e.preventDefault();
+
+    // 1. Check 5-Minute Rate-Limit Cooldown
+    if (remainingSeconds > 0) {
+      const waitFormatted = formatCooldownMMSS(remainingSeconds);
+      setResetError(`Please wait ${waitFormatted} before requesting another password reset link.`);
+      showToast(
+        `Rate limit active: Please wait ${waitFormatted} before requesting again.`,
+        'warning',
+        'Cooldown Active'
+      );
+      return;
+    }
+
     const cleanReset = sanitizeEmailInput(resetEmail).trim();
     if (!cleanReset) {
       setResetError('Email Address is required');
@@ -154,15 +204,47 @@ export default function WebLogin({ setRole, setOffice }) {
       setResetError('Please enter a valid email address');
       return;
     }
+
     setIsSendingReset(true);
     try {
+      // 2. Verify account exists in Firestore 'users' before consuming cooldown
+      const emailDocSnap = await getDoc(doc(db, 'users', cleanReset));
+      let accountExists = emailDocSnap.exists();
+      if (!accountExists) {
+        const qSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanReset)));
+        accountExists = !qSnap.empty;
+      }
+
+      if (!accountExists) {
+        setResetError('No registered personnel account found with this email address.');
+        setIsSendingReset(false);
+        return;
+      }
+
+      // 3. Dispatch Reset Email & Lock for 5 Minutes (300 Seconds)
       await sendPasswordResetEmail(auth, cleanReset);
-      showToast(`Password reset link sent to ${cleanReset}.`, 'success', 'Reset Email Sent');
+
+      const nextAllowed = Date.now() + RESET_COOLDOWN_MS;
+      localStorage.setItem(RESET_COOLDOWN_KEY, String(nextAllowed));
+      setCooldownUntilMs(nextAllowed);
+
+      showToast(
+        `Password reset link sent to ${cleanReset}. You must wait 5 minutes before requesting again.`,
+        'success',
+        'Reset Email Sent'
+      );
       setShowResetModal(false);
       setResetEmail('');
       setResetError('');
     } catch (err) {
-      setResetError('Could not send reset email. Verify that the email is registered.');
+      if (err?.code === 'auth/too-many-requests') {
+        const nextAllowed = Date.now() + RESET_COOLDOWN_MS;
+        localStorage.setItem(RESET_COOLDOWN_KEY, String(nextAllowed));
+        setCooldownUntilMs(nextAllowed);
+        setResetError('Too many requests. Please wait 5 minutes before trying again.');
+      } else {
+        setResetError('Could not send reset email. Verify that the email is registered.');
+      }
     }
     setIsSendingReset(false);
   };
@@ -283,7 +365,9 @@ export default function WebLogin({ setRole, setOffice }) {
                   setShowResetModal(true);
                 }}
               >
-                Forgot password?
+                {remainingSeconds > 0
+                  ? `Forgot password? (${formatCooldownMMSS(remainingSeconds)})`
+                  : 'Forgot password?'}
               </button>
             </div>
 
@@ -297,7 +381,7 @@ export default function WebLogin({ setRole, setOffice }) {
         </div>
       </section>
 
-      {/* FORGOT PASSWORD MODAL */}
+      {/* FORGOT PASSWORD MODAL WITH 5-MINUTE RATE-LIMIT COOLDOWN */}
       {showResetModal && (
         <div className="quest-modal-backdrop" onClick={() => setShowResetModal(false)}>
           <div className="quest-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -309,7 +393,7 @@ export default function WebLogin({ setRole, setOffice }) {
                 <div>
                   <h3 style={{ margin: 0, fontSize: '19px', color: '#0F172A' }}>Reset Password</h3>
                   <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>
-                    Receive a password recovery link via email
+                    Receive a password recovery link via email (1 request per 5 mins)
                   </p>
                 </div>
               </div>
@@ -317,6 +401,30 @@ export default function WebLogin({ setRole, setOffice }) {
                 <X size={18} />
               </button>
             </div>
+
+            {remainingSeconds > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '12px 14px',
+                  backgroundColor: '#FFFBEB',
+                  border: '1px solid #FDE68A',
+                  borderRadius: '12px',
+                  color: '#B45309',
+                  fontSize: '12.5px',
+                  fontWeight: 700,
+                  marginBottom: '16px'
+                }}
+              >
+                <Clock size={16} color="#D97706" style={{ flexShrink: 0 }} />
+                <span>
+                  Rate limit active: You can request another reset link in{' '}
+                  <strong>{formatCooldownMMSS(remainingSeconds)}</strong>.
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleForgotPassword} noValidate>
               <div style={{ marginBottom: '20px' }}>
@@ -326,6 +434,7 @@ export default function WebLogin({ setRole, setOffice }) {
                 <input
                   type="email"
                   maxLength={80}
+                  disabled={remainingSeconds > 0}
                   className={`bc-login-input ${resetError ? 'input-error' : ''}`}
                   placeholder="Enter your registered BC email"
                   value={resetEmail}
@@ -341,8 +450,20 @@ export default function WebLogin({ setRole, setOffice }) {
                 <button type="button" onClick={() => setShowResetModal(false)} className="quest-btn quest-btn-outline">
                   Cancel
                 </button>
-                <button type="submit" disabled={isSendingReset} className="quest-btn quest-btn-primary">
-                  {isSendingReset ? 'Sending...' : 'Send Reset Link'}
+                <button
+                  type="submit"
+                  disabled={isSendingReset || remainingSeconds > 0}
+                  className="quest-btn quest-btn-primary"
+                  style={{
+                    opacity: remainingSeconds > 0 ? 0.65 : 1,
+                    cursor: remainingSeconds > 0 ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isSendingReset
+                    ? 'Sending...'
+                    : remainingSeconds > 0
+                    ? `Wait ${formatCooldownMMSS(remainingSeconds)}`
+                    : 'Send Reset Link'}
                 </button>
               </div>
             </form>

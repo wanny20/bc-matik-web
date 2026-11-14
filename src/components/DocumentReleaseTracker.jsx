@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, getDocs, updateDoc, deleteDoc, doc, addDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, updateDoc, deleteDoc, doc, addDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { 
   FileCheck2, BellRing, Clock, AlertTriangle, CheckCircle, Search, Sparkles, Eye, Trash2, X, Calendar,
@@ -8,6 +8,7 @@ import {
 import { useUI } from './UIContext';
 import { SkeletonTableRows } from './Skeleton';
 import TablePagination from './TablePagination';
+import { sendDocumentReadyEmail } from '../utils/brevoEmail';
 import './DocumentReleaseTracker.css';
 
 const CLAIM_VALIDITY_DAYS = 7;
@@ -25,7 +26,7 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
   const [sortOrder, setSortOrder] = useState('desc');
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
 
-  // Pagination States (Declared INSIDE DocumentReleaseTracker!)
+  // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -35,6 +36,43 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
   const [schedulingDoc, setSchedulingDoc] = useState(null);
   const [releaseDateInput, setReleaseDateInput] = useState('');
   const [isSavingDate, setIsSavingDate] = useState(false);
+
+  // Helper: Resolves Student or Guest Email & Sends Brevo Document Ready Email
+  const dispatchClientDocumentEmail = useCallback(async (ticket, claimDeadlineText = '') => {
+    try {
+      let targetEmail = (ticket.guest_email || '').trim();
+      let shouldSend = Boolean(targetEmail);
+
+      // If registered student, check their latest Firestore profile for email & notification toggle
+      if (ticket.student_id && ticket.student_id !== 'N/A' && ticket.student_id !== 'GUEST') {
+        const studentSnap = await getDoc(doc(db, 'students', ticket.student_id));
+        if (studentSnap.exists()) {
+          const sData = studentSnap.data();
+          const profileEmail = (sData.email || '').trim();
+          if (profileEmail) {
+            targetEmail = profileEmail;
+            // Send if email_notifications_enabled is true (or if they verified their email)
+            shouldSend = sData.email_notifications_enabled !== false;
+          }
+        }
+      }
+
+      if (shouldSend && targetEmail && targetEmail.includes('@')) {
+        const res = await sendDocumentReadyEmail({
+          toEmail: targetEmail,
+          studentName: ticket.student_name || 'Student',
+          queueNumber: ticket.queue_number || '---',
+          officeName: ticket.target_office_id || 'Office',
+          purpose: ticket.transaction_purpose || 'Document Request',
+          claimDeadlineText
+        });
+        return res.ok ? targetEmail : null;
+      }
+    } catch (err) {
+      console.error('Error dispatching document email:', err);
+    }
+    return null;
+  }, []);
 
   const getDocDateObj = (ticket) => {
     const raw = ticket.timestamps?.target_release_at || ticket.timestamps?.recalled_at || ticket.timestamps?.booked_at || ticket.created_at;
@@ -217,6 +255,7 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
   const handleNotifyReady = async (ticket) => {
     const recalledAt = new Date();
     const expiresAt = new Date(recalledAt.getTime() + CLAIM_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
+    const expiryDateStr = expiresAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     try {
       await updateDoc(doc(db, 'tickets', ticket.id), {
@@ -240,8 +279,16 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
         is_read: false
       });
 
+      // Automatically send Brevo Email if client has a linked email
+      const emailedTo = await dispatchClientDocumentEmail(
+        ticket,
+        `Valid for claiming until ${expiryDateStr} (${CLAIM_VALIDITY_DAYS} days).`
+      );
+
       showToast(
-        `Notified ${ticket.student_name || 'Student'} (${ticket.queue_number}) that their document is ready for release!`,
+        emailedTo
+          ? `Marked ${ticket.queue_number} Ready for Pickup & sent email alert to ${emailedTo}!`
+          : `Notified ${ticket.student_name || 'Student'} (${ticket.queue_number}) in-app that their document is ready!`,
         'success',
         'Release Notification Sent'
       );
@@ -266,7 +313,19 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
         created_at: new Date(),
         is_read: false
       });
-      showToast(`Sent claim reminder to ${ticket.student_name || ticket.queue_number}.`, 'success', 'Reminder Sent');
+
+      const emailedTo = await dispatchClientDocumentEmail(
+        ticket,
+        hrs !== null ? `Remaining claim window: ${Math.max(0, hrs)} hours.` : 'Ready for immediate pickup.'
+      );
+
+      showToast(
+        emailedTo
+          ? `Sent in-app & Brevo email claim reminder to ${emailedTo}.`
+          : `Sent in-app claim reminder to ${ticket.student_name || ticket.queue_number}.`,
+        'success',
+        'Reminder Sent'
+      );
     } catch (e) {
       showToast('Failed to send reminder.', 'error');
     }
@@ -320,7 +379,6 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
       return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
     });
 
-  // STEP 3: Slice filtered documents for the current page
   const paginatedDocs = filteredDocs.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
@@ -830,7 +888,6 @@ export default function DocumentReleaseTracker({ role, assignedOffice, setAdminS
           </table>
         </div>
 
-        {/* STEP 4: Render Pagination Footer */}
         <TablePagination
           totalItems={filteredDocs.length}
           currentPage={currentPage}

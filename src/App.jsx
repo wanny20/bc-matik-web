@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, getDocs, getDoc, onSnapshot, query, where, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, getDoc, onSnapshot, query, where, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 import OfficeManager from './components/OfficeManager';
 import StaffDashboard from './components/StaffDashboard';
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import './index.css';
 import './Layout.css';
+import { sendOtpVerificationEmail } from './utils/brevoEmail';
 
 function AppContent() {
   const { showToast, confirmAction } = useUI();
@@ -70,6 +71,33 @@ function AppContent() {
   }, [showToast]);
 
 const [broadcastModalData, setBroadcastModalData] = useState(null);
+
+// 3. Real-Time Brevo Email Outbox Relay (Dispatches 6-Digit OTPs requested from Android App)
+  useEffect(() => {
+    if (!user || !role) return;
+    const unsubOutbox = onSnapshot(collection(db, 'mail_outbox'), (snap) => {
+      snap.docChanges().forEach(async (change) => {
+        if (change.type === 'added') {
+          const mailDoc = change.doc;
+          const data = mailDoc.data();
+          if (data.status === 'sent' || data.status === 'failed') return;
+
+          if (data.to && data.otp_code) {
+            const res = await sendOtpVerificationEmail({
+              toEmail: data.to,
+              studentId: data.student_id || 'Student',
+              otpCode: data.otp_code
+            });
+            await updateDoc(doc(db, 'mail_outbox', mailDoc.id), {
+              status: res.ok ? 'sent' : 'failed',
+              sent_at: new Date()
+            });
+          }
+        }
+      });
+    });
+    return () => unsubOutbox();
+  }, [user, role]);
 
   // 2. Real-Time Global Announcement & Allowed Programs Schedule Listener
   useEffect(() => {
@@ -723,6 +751,17 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
     if (!d) return 'N/A';
     return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
   };
+const formatRecordTime = (rec) => {
+    const d = getRecordDateObj(rec);
+    if (!d) return '';
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  };
+
+  const formatRecordDateTime = (rec) => {
+    const d = getRecordDateObj(rec);
+    if (!d) return 'N/A';
+    return `${formatRecordDate(rec)} • ${formatRecordTime(rec)}`;
+  };
 
   const formatRecordYMD = (rec) => {
     const d = getRecordDateObj(rec);
@@ -847,7 +886,7 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
     }
     const headers = ['Date,Queue Number,Student Name,Student ID,Office,Transaction,Status'];
     const rows = filtered.map(r => 
-      `"${formatRecordDate(r)}","${r.queue_number || ''}","${r.student_name || 'Walk-in Guest'}","${r.student_id || 'GUEST'}","${r.target_office_id || ''}","${r.transaction_purpose || 'General'}","${(r.status || '').toUpperCase()}"`
+      `"${formatRecordDateTime(r)}","${r.queue_number || ''}","${r.student_name || 'Walk-in Guest'}","${r.student_id || 'GUEST'}","${r.target_office_id || ''}","${r.transaction_purpose || 'General'}","${(r.status || '').toUpperCase()}"`
     );
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
     const link = document.createElement('a');
@@ -868,7 +907,7 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
     const tableRows = filtered.map((r, idx) => `
       <tr>
         <td>${idx + 1}</td>
-        <td>${formatRecordDate(r)}</td>
+        <td>${formatRecordDateTime(r)}</td>
         <td><b>${r.queue_number || ''}</b></td>
         <td>${r.student_name || 'Walk-in Guest'}</td>
         <td>${r.student_id || 'GUEST'}</td>
@@ -886,7 +925,7 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
           <thead>
             <tr style="background-color:#9E0B03; color:#FFFFFF; font-weight:bold;">
               <th>#</th>
-              <th>Date</th>
+              <th>Date & Time</th>
               <th>Queue No.</th>
               <th>Client Name</th>
               <th>Student ID</th>
@@ -928,7 +967,7 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
     const rowsHtml = filtered.map((r, idx) => `
       <tr>
         <td>${idx + 1}</td>
-        <td>${formatRecordDate(r)}</td>
+        <td>${formatRecordDateTime(r)}</td>
         <td><strong>${r.queue_number || ''}</strong></td>
         <td>${r.student_name || 'Walk-in Guest'}</td>
         <td>${r.student_id || 'GUEST'}</td>
@@ -1217,8 +1256,13 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
               ) : (
                 paginatedRecords.map((rec) => (
                   <tr key={rec.id}>
-                    <td style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
-                      {formatRecordDate(rec)}
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A' }}>
+                        {formatRecordDate(rec)}
+                      </div>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748B' }}>
+                        {formatRecordTime(rec)}
+                      </div>
                     </td>
                     <td style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--quest-primary)' }}>
                       {rec.queue_number || '---'}
@@ -1395,7 +1439,7 @@ function QueueRecordsTable({ setAdminSection, role, assignedOffice }) {
             <div className="quest-detail-box">
               <div className="quest-detail-row">
                 <span className="quest-detail-label">Date Booked</span>
-                <span className="quest-detail-value">{formatRecordDate(viewingRecord)}</span>
+                <span className="quest-detail-value">{formatRecordDateTime(viewingRecord)}</span>
               </div>
               <div className="quest-detail-row">
                 <span className="quest-detail-label">Queue Number</span>
