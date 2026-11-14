@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage, compressImageFile } from '../firebaseConfig';
-import { Building2, Plus, Power, MonitorUp, Trash2, X, Eye, Edit3, KeyRound, RefreshCw, ImagePlus, Users } from 'lucide-react';
+import { db } from '../firebaseConfig';
+import { Building2, Plus, Power, MonitorUp, Trash2, X, Eye, Edit3, KeyRound, RefreshCw, ImagePlus, Users, Crop, ZoomIn, ZoomOut, Move, QrCode, Printer } from 'lucide-react';
 import { useUI } from './UIContext';
 import { SkeletonTableRows } from './Skeleton';
 import TablePagination from './TablePagination';
@@ -33,7 +32,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
   const [newOfficeType, setNewOfficeType] = useState('minor');
   const [newLimitMode, setNewLimitMode] = useState('unlimited'); // 'unlimited' | 'custom'
   const [newDailyLimit, setNewDailyLimit] = useState('100');
-  const [newOfficePhotoFile, setNewOfficePhotoFile] = useState(null);
+  const [newOfficeRawPhoto, setNewOfficeRawPhoto] = useState('');
   const [newOfficePhotoPreview, setNewOfficePhotoPreview] = useState('');
   const [officeError, setOfficeError] = useState('');
   const [limitError, setLimitError] = useState('');
@@ -56,11 +55,18 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
   const [editOfficeOnline, setEditOfficeOnline] = useState(true);
   const [editLimitMode, setEditLimitMode] = useState('unlimited'); // 'unlimited' | 'custom'
   const [editDailyLimit, setEditDailyLimit] = useState('100');
-  const [editOfficePhotoFile, setEditOfficePhotoFile] = useState(null);
+  const [editOfficeRawPhoto, setEditOfficeRawPhoto] = useState('');
   const [editOfficePhotoPreview, setEditOfficePhotoPreview] = useState('');
   const [editOfficeError, setEditOfficeError] = useState('');
   const [editLimitError, setEditLimitError] = useState('');
   const [isUpdatingOffice, setIsUpdatingOffice] = useState(false);
+
+  // 1:1 Interactive Image Cropper Modal State
+  const [cropSession, setCropSession] = useState({
+    isOpen: false,
+    isEdit: false,
+    rawImageSrc: ''
+  });
 
   const isMiniAdmin = role === 'mini_admin';
 
@@ -79,35 +85,40 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
     fetchOffices();
   }, [fetchOffices]);
 
-  const uploadCompressedOfficePhoto = async (file, officeNameKey) => {
-    if (!file) return null;
-    const { blob, dataUrl } = await compressImageFile(file, 800, 450, 0.70);
-    try {
-      const cleanSlug = officeNameKey.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-      const storageRef = ref(storage, `office_pictures/${cleanSlug}_${Date.now()}.jpg`);
-      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
-      return await getDownloadURL(storageRef);
-    } catch (storageErr) {
-      console.warn('Storage upload fallback to compressed DataURL:', storageErr);
-      return dataUrl;
-    }
-  };
-
-  const handleSelectPhoto = async (e, isEdit = false) => {
+  // Opens the 1:1 Cropper Modal whenever an image file is chosen
+  const handleSelectPhoto = (e, isEdit = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       showToast('Please select a valid image file (JPG, PNG, WebP).', 'error', 'Invalid File');
       return;
     }
-    const { dataUrl } = await compressImageFile(file, 800, 450, 0.70);
-    if (isEdit) {
-      setEditOfficePhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64Source = reader.result;
+      if (isEdit) {
+        setEditOfficeRawPhoto(base64Source);
+      } else {
+        setNewOfficeRawPhoto(base64Source);
+      }
+      setCropSession({
+        isOpen: true,
+        isEdit,
+        rawImageSrc: base64Source
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleApplyCrop = ({ dataUrl }) => {
+    if (cropSession.isEdit) {
       setEditOfficePhotoPreview(dataUrl);
     } else {
-      setNewOfficePhotoFile(file);
       setNewOfficePhotoPreview(dataUrl);
     }
+    setCropSession({ isOpen: false, isEdit: false, rawImageSrc: '' });
+    showToast('Photo cropped to 1:1 square ratio (~28KB).', 'success', 'Crop Applied');
   };
 
   const handleAddOffice = async (e) => {
@@ -139,11 +150,6 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
 
     setIsSubmitting(true);
     try {
-      let uploadedPhotoUrl = '';
-      if (newOfficePhotoFile) {
-        uploadedPhotoUrl = await uploadCompressedOfficePhoto(newOfficePhotoFile, cleanName);
-      }
-
       await addDoc(collection(db, 'offices'), {
         office_name: cleanName,
         is_major: newOfficeType === 'major',
@@ -151,7 +157,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         windows: ["Window 0"],
         clearance_code: initialCode,
         daily_limit: parsedLimit,
-        image_url: uploadedPhotoUrl || '',
+        image_url: newOfficePhotoPreview || '',
         created_at: new Date()
       });
       showToast(`${cleanName} registered with ${parsedLimit > 0 ? `${parsedLimit}/day limit` : 'No Daily Limit'}!`, 'success', 'Office Registered');
@@ -159,7 +165,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
       setNewOfficeType('minor');
       setNewLimitMode('unlimited');
       setNewDailyLimit('100');
-      setNewOfficePhotoFile(null);
+      setNewOfficeRawPhoto('');
       setNewOfficePhotoPreview('');
       setOfficeError('');
       setLimitError('');
@@ -188,6 +194,225 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
       showToast('Failed to refresh office clearance code.', 'error');
     }
   };
+  const getOfficeArrivalToken = (officeName = '') => {
+    const prefix = officeName.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+    return `BC-ARRIVE-${prefix}`;
+  };
+
+  const handlePrintOfficeQR = (office) => {
+    const token = getOfficeArrivalToken(office.office_name);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=10&data=${encodeURIComponent(token)}`;
+
+    const printWin = window.open('', '_blank', 'width=900,height=1050');
+    if (!printWin) {
+      showToast('Please allow popups in your browser to print the QR poster.', 'error', 'Popup Blocked');
+      return;
+    }
+
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>BCMatik Arrival QR Poster - ${office.office_name}</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 12mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: 'Segoe UI', Inter, Arial, sans-serif;
+              background: #FFFFFF;
+              color: #0F172A;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 96vh;
+            }
+            .poster-sheet {
+              width: 100%;
+              max-width: 740px;
+              min-height: 94vh;
+              border: 4px solid #9E0B03;
+              border-radius: 28px;
+              padding: 36px 40px;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+              text-align: center;
+            }
+            .header-banner {
+              background-color: #9E0B03;
+              color: #FFFFFF;
+              padding: 22px 24px;
+              border-radius: 20px;
+              border-bottom: 5px solid #FACC15;
+            }
+            .school-sub {
+              font-size: 13px;
+              font-weight: 800;
+              letter-spacing: 0.14em;
+              color: #FACC15;
+              text-transform: uppercase;
+              margin-bottom: 6px;
+            }
+            .brand-title {
+              font-size: 28px;
+              font-weight: 900;
+              margin: 0;
+              letter-spacing: -0.02em;
+            }
+            .office-pill {
+              display: inline-block;
+              margin-top: 18px;
+              padding: 6px 18px;
+              border-radius: 999px;
+              background-color: #FCEAE9;
+              color: #9E0B03;
+              font-size: 13px;
+              font-weight: 800;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+            }
+            .office-name {
+              font-size: 52px;
+              font-weight: 900;
+              color: #0F172A;
+              margin: 8px 0 4px 0;
+              line-height: 1.05;
+              text-transform: uppercase;
+            }
+            .scan-subtitle {
+              font-size: 16px;
+              font-weight: 600;
+              color: #475569;
+              margin: 0 0 18px 0;
+            }
+            .qr-frame {
+              display: inline-flex;
+              flex-direction: column;
+              align-items: center;
+              padding: 24px;
+              border: 4px dashed #9E0B03;
+              border-radius: 28px;
+              background-color: #FFFFFF;
+              margin: 0 auto;
+            }
+            .qr-frame img {
+              width: 340px;
+              height: 340px;
+              display: block;
+            }
+            .token-box {
+              margin-top: 18px;
+              background-color: #F8FAFC;
+              border: 2px solid #E2E8F0;
+              border-radius: 16px;
+              padding: 12px 28px;
+              display: inline-block;
+            }
+            .token-label {
+              font-size: 11px;
+              font-weight: 800;
+              color: #64748B;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+            }
+            .token-code {
+              font-size: 32px;
+              font-weight: 900;
+              color: #9E0B03;
+              letter-spacing: 0.08em;
+              font-family: Consolas, monospace;
+              margin-top: 2px;
+            }
+            .steps-box {
+              margin-top: 22px;
+              background-color: #FEF9E7;
+              border: 1.5px solid #FDE68A;
+              border-radius: 18px;
+              padding: 18px 24px;
+              text-align: left;
+            }
+            .steps-title {
+              font-size: 13px;
+              font-weight: 900;
+              color: #92400E;
+              text-transform: uppercase;
+              letter-spacing: 0.06em;
+              margin-bottom: 10px;
+            }
+            .step-item {
+              font-size: 14px;
+              font-weight: 600;
+              color: #1E293B;
+              margin: 6px 0;
+            }
+            .footer-note {
+              font-size: 11.5px;
+              font-weight: 700;
+              color: #64748B;
+              margin-top: 12px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="poster-sheet">
+            <div class="header-banner">
+              <div class="school-sub">Bicol College • Main Campus</div>
+              <h1 class="brand-title">BCMATIK SMART QUEUING SYSTEM</h1>
+            </div>
+
+            <div>
+              <div class="office-pill">Official Hallway Arrival Check-In Poster</div>
+              <div class="office-name">${office.office_name}</div>
+              <p class="scan-subtitle">Scan this QR code using the BCMatik Mobile App upon arriving at the hallway</p>
+
+              <div class="qr-frame">
+                <img id="qrPosterImg" src="${qrUrl}" alt="${token}" />
+              </div>
+
+              <div>
+                <div class="token-box">
+                  <div class="token-label">Manual Check-In Token Code</div>
+                  <div class="token-code">${token}</div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="steps-box">
+                <div class="steps-title">How to Activate Your Queue Ticket:</div>
+                <div class="step-item"><strong>1.</strong> Open the <strong>BCMatik Mobile App</strong> on your phone and view your booked ticket.</div>
+                <div class="step-item"><strong>2.</strong> Tap <strong>"Scan Hallway QR"</strong> and point your camera at this poster (or type <strong>${token}</strong>).</div>
+                <div class="step-item"><strong>3.</strong> Your ticket will turn <strong>ACTIVE</strong>. Watch the Hallway TV Monitor for your number to be called!</div>
+              </div>
+              <div class="footer-note">
+                BCMatik: Queue. Guide. Serve. • Printed on ${new Date().toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+          <script>
+            const img = document.getElementById('qrPosterImg');
+            img.onload = () => {
+              setTimeout(() => {
+                window.focus();
+                window.print();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+    showToast(`Prepared full-page QR poster for ${office.office_name}.`, 'success', 'QR Poster Ready');
+  };
 
   const openEditModal = (office) => {
     const currentLim = Number(office.daily_limit || 0);
@@ -197,7 +422,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
     setEditOfficeOnline(office.is_online ?? true);
     setEditLimitMode(currentLim > 0 ? 'custom' : 'unlimited');
     setEditDailyLimit(currentLim > 0 ? String(currentLim) : '100');
-    setEditOfficePhotoFile(null);
+    setEditOfficeRawPhoto(office.image_url || '');
     setEditOfficePhotoPreview(office.image_url || '');
     setEditOfficeError('');
     setEditLimitError('');
@@ -229,17 +454,12 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
 
     setIsUpdatingOffice(true);
     try {
-      let finalPhotoUrl = editOfficePhotoPreview || '';
-      if (editOfficePhotoFile) {
-        finalPhotoUrl = await uploadCompressedOfficePhoto(editOfficePhotoFile, cleanName);
-      }
-
       await updateDoc(doc(db, 'offices', editingOffice.id), {
         office_name: cleanName,
         is_major: editOfficeType === 'major',
         is_online: editOfficeOnline,
         daily_limit: parsedLimit,
-        image_url: finalPhotoUrl,
+        image_url: editOfficePhotoPreview || '',
         updated_at: new Date()
       });
       showToast(`${cleanName} updated (${parsedLimit > 0 ? `Max ${parsedLimit} clients/day` : 'No Daily Limit'})!`, 'success', 'Office Updated');
@@ -353,14 +573,14 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
   };
 
   const closeAddOfficeModal = () => {
-    const isDirty = newOfficeName.trim() !== '' || newOfficeType !== 'minor' || newLimitMode !== 'unlimited' || newOfficePhotoFile !== null;
+    const isDirty = newOfficeName.trim() !== '' || newOfficeType !== 'minor' || newLimitMode !== 'unlimited' || newOfficePhotoPreview !== '';
     guardModalClose(isDirty, () => {
       setIsAddModalOpen(false);
       setNewOfficeName('');
       setNewOfficeType('minor');
       setNewLimitMode('unlimited');
       setNewDailyLimit('100');
-      setNewOfficePhotoFile(null);
+      setNewOfficeRawPhoto('');
       setNewOfficePhotoPreview('');
       setOfficeError('');
       setLimitError('');
@@ -376,7 +596,6 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
       editOfficeType !== (editingOffice.is_major ? 'major' : 'minor') ||
       editOfficeOnline !== (editingOffice.is_online ?? true) ||
       currentPlannedLim !== origLim ||
-      editOfficePhotoFile !== null ||
       editOfficePhotoPreview !== (editingOffice.image_url || '');
     guardModalClose(isDirty, () => setEditingOffice(null));
   };
@@ -404,8 +623,8 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
           </h1>
           <p>
             {isMiniAdmin 
-              ? `Configure active service windows, daily queue limit, office photo, and online availability for ${assignedOffice}.`
-              : 'Control office visibility, daily queue accommodation limits, façade photos, windows, and 4-digit clearance codes.'}
+              ? `Configure active service windows, daily queue limit, 1:1 office photo, and online availability for ${assignedOffice}.`
+              : 'Control office visibility, daily queue accommodation limits, 1:1 office photos, windows, and 4-digit clearance codes.'}
           </p>
         </div>
         <button onClick={() => setAdminSection('dashboard')} className="quest-back-pill-btn">
@@ -425,7 +644,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 setNewOfficeType('minor');
                 setNewLimitMode('unlimited');
                 setNewDailyLimit('100');
-                setNewOfficePhotoFile(null);
+                setNewOfficeRawPhoto('');
                 setNewOfficePhotoPreview('');
                 setOfficeError('');
                 setLimitError('');
@@ -467,13 +686,21 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                             <img
                               src={office.image_url}
                               alt={office.office_name}
-                              style={{ width: '48px', height: '36px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #E2E8F0', flexShrink: 0 }}
+                              style={{
+                                width: '44px',
+                                height: '44px',
+                                aspectRatio: '1 / 1',
+                                objectFit: 'cover',
+                                borderRadius: '10px',
+                                border: '1.5px solid #E2E8F0',
+                                flexShrink: 0
+                              }}
                             />
                           ) : (
                             <div style={{
-                              width: '48px',
-                              height: '36px',
-                              borderRadius: '8px',
+                              width: '44px',
+                              height: '44px',
+                              borderRadius: '10px',
                               backgroundColor: '#FCEAE9',
                               color: 'var(--quest-primary)',
                               display: 'flex',
@@ -481,7 +708,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                               justifyContent: 'center',
                               flexShrink: 0
                             }}>
-                              <Building2 size={18} />
+                              <Building2 size={19} />
                             </div>
                           )}
                           <span style={{ fontWeight: 700, color: 'var(--quest-text-primary)' }}>{office.office_name}</span>
@@ -532,9 +759,14 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                             <KeyRound size={13} /> Code: <strong>{office.clearance_code || '4892'}</strong>
                           </button>
                         ) : (
-                          <span style={{ fontSize: '12px', color: 'var(--quest-text-muted)', fontWeight: 600 }}>
-                            Live Queue (No Code)
-                          </span>
+                          <button
+                            onClick={() => handlePrintOfficeQR(office)}
+                            className="quest-badge badge-primary"
+                            style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            title="Click to print full-page Bond Paper Arrival QR Poster"
+                          >
+                            <QrCode size={13} /> {getOfficeArrivalToken(office.office_name)} <Printer size={12} />
+                          </button>
                         )}
                       </td>
                       <td>
@@ -588,8 +820,8 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         />
       </div>
 
-      {/* 1. REGISTER NEW OFFICE POPUP MODAL (With Daily Queue Limit & Photo Upload!) */}
-      {isAddModalOpen && (
+      {/* 1. REGISTER NEW OFFICE POPUP MODAL (Switches cleanly to Cropper when cropping!) */}
+      {isAddModalOpen && !cropSession.isOpen && (
         <div className="quest-modal-backdrop" onClick={closeAddOfficeModal}>
           <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '490px', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -599,7 +831,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '20px', color: '#1E293B', fontFamily: 'var(--font-heading)' }}>Register New Office</h3>
-                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>Initializes at Window 0 with daily limit & optional photo.</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>Initializes at Window 0 with daily limit & 1:1 photo.</p>
                 </div>
               </div>
               <button onClick={closeAddOfficeModal} className="quest-toast-close">
@@ -675,32 +907,42 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 {limitError && <span className="quest-error-text">{limitError}</span>}
               </div>
 
-              {/* Office Banner Image Upload */}
+              {/* 1:1 Square Office Photo Upload & Preview */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
-                  Office Window / Building Photo (Shown in Student App • Auto-Compressed)
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '8px' }}>
+                  Office Photo (1:1 Square Ratio • Auto-Compressed)
                 </label>
                 {newOfficePhotoPreview && (
-                  <div style={{ position: 'relative', marginBottom: '10px' }}>
-                    <img
-                      src={newOfficePhotoPreview}
-                      alt="Office Preview"
-                      style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '12px', border: '1px solid #CBD5E1' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setNewOfficePhotoFile(null); setNewOfficePhotoPreview(''); }}
-                      className="quest-icon-btn delete"
-                      style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#FFFFFF' }}
-                      title="Remove Photo"
-                    >
-                      <X size={14} />
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ position: 'relative', width: '140px', height: '140px' }}>
+                      <img
+                        src={newOfficePhotoPreview}
+                        alt="1:1 Office Preview"
+                        style={{
+                          width: '140px',
+                          height: '140px',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          borderRadius: '16px',
+                          border: '2px solid var(--quest-primary)',
+                          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setNewOfficeRawPhoto(''); setNewOfficePhotoPreview(''); }}
+                        className="quest-icon-btn delete"
+                        style={{ position: 'absolute', top: '-8px', right: '-8px', width: '28px', height: '28px', borderRadius: '50%', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}
+                        title="Remove Photo"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 )}
                 <label className="quest-btn quest-btn-outline" style={{ width: '100%', justifyContent: 'center', cursor: 'pointer', padding: '10px' }}>
                   <ImagePlus size={16} color="var(--quest-primary)" />
-                  {newOfficePhotoPreview ? 'Change Office Photo' : 'Upload Office Photo'}
+                  {newOfficePhotoPreview ? 'Choose Different Photo' : 'Select & Crop Office Photo (1:1)'}
                   <input type="file" accept="image/*" onChange={(e) => handleSelectPhoto(e, false)} style={{ display: 'none' }} />
                 </label>
               </div>
@@ -708,7 +950,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
               <div className="quest-modal-actions" style={{ marginTop: '8px' }}>
                 <button type="button" onClick={closeAddOfficeModal} className="quest-btn quest-btn-outline">Cancel</button>
                 <button type="submit" disabled={isSubmitting} className="quest-btn quest-btn-primary">
-                  {isSubmitting ? 'Uploading & Registering...' : 'Register Office'}
+                  {isSubmitting ? 'Saving...' : 'Register Office'}
                 </button>
               </div>
             </form>
@@ -764,7 +1006,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         </div>
       )}
 
-      {/* 3. VIEW OFFICE DETAILS MODAL */}
+      {/* 3. VIEW OFFICE DETAILS MODAL (With Centered 1:1 Square Frame!) */}
       {viewingOffice && (
         <div className="quest-modal-backdrop" onClick={() => setViewingOffice(null)}>
           <div className="quest-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -784,11 +1026,21 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
             </div>
 
             {viewingOffice.image_url && (
-              <img
-                src={viewingOffice.image_url}
-                alt={viewingOffice.office_name}
-                style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '14px', marginBottom: '16px', border: '1px solid #E2E8F0' }}
-              />
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '18px' }}>
+                <img
+                  src={viewingOffice.image_url}
+                  alt={viewingOffice.office_name}
+                  style={{
+                    width: '180px',
+                    height: '180px',
+                    aspectRatio: '1 / 1',
+                    objectFit: 'cover',
+                    borderRadius: '18px',
+                    border: '2px solid #E2E8F0',
+                    boxShadow: '0 10px 24px -6px rgba(15, 23, 42, 0.12)'
+                  }}
+                />
+              </div>
             )}
 
             <div className="quest-detail-box">
@@ -845,13 +1097,23 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
               >
                 <Edit3 size={15} /> Edit Office
               </button>
+              {viewingOffice.is_major && (
+                <button
+                  type="button"
+                  onClick={() => handlePrintOfficeQR(viewingOffice)}
+                  className="quest-btn quest-btn-outline"
+                  style={{ borderColor: 'var(--quest-primary)', color: 'var(--quest-primary)' }}
+                >
+                  <Printer size={15} /> Print QR Poster
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. EDIT OFFICE MODAL (With Daily Queue Limit & Photo Upload!) */}
-      {editingOffice && (
+      {/* 4. EDIT OFFICE MODAL (Switches cleanly to Cropper when cropping!) */}
+      {editingOffice && !cropSession.isOpen && (
         <div className="quest-modal-backdrop" onClick={closeEditOfficeModal}>
           <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '490px', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -936,32 +1198,42 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 {editLimitError && <span className="quest-error-text">{editLimitError}</span>}
               </div>
 
-              {/* Office Photo Upload / Replace */}
+              {/* 1:1 Square Office Photo Upload / Replace */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
-                  Office Window / Building Photo (Displayed in Student Mobile App)
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '8px' }}>
+                  Office Photo (1:1 Square Ratio • Displayed in Student App)
                 </label>
                 {editOfficePhotoPreview && (
-                  <div style={{ position: 'relative', marginBottom: '10px' }}>
-                    <img
-                      src={editOfficePhotoPreview}
-                      alt="Office Preview"
-                      style={{ width: '100%', height: '140px', objectFit: 'cover', borderRadius: '12px', border: '1px solid #CBD5E1' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setEditOfficePhotoFile(null); setEditOfficePhotoPreview(''); }}
-                      className="quest-icon-btn delete"
-                      style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#FFFFFF' }}
-                      title="Remove Photo"
-                    >
-                      <X size={14} />
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ position: 'relative', width: '140px', height: '140px' }}>
+                      <img
+                        src={editOfficePhotoPreview}
+                        alt="1:1 Office Preview"
+                        style={{
+                          width: '140px',
+                          height: '140px',
+                          aspectRatio: '1 / 1',
+                          objectFit: 'cover',
+                          borderRadius: '16px',
+                          border: '2px solid var(--quest-primary)',
+                          boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setEditOfficeRawPhoto(''); setEditOfficePhotoPreview(''); }}
+                        className="quest-icon-btn delete"
+                        style={{ position: 'absolute', top: '-8px', right: '-8px', width: '28px', height: '28px', borderRadius: '50%', boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}
+                        title="Remove Photo"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                 )}
                 <label className="quest-btn quest-btn-outline" style={{ width: '100%', justifyContent: 'center', cursor: 'pointer', padding: '10px' }}>
                   <ImagePlus size={16} color="var(--quest-primary)" />
-                  {editOfficePhotoPreview ? 'Replace Office Photo' : 'Upload Office Photo'}
+                  {editOfficePhotoPreview ? 'Upload & Crop New Photo' : 'Select & Crop Office Photo (1:1)'}
                   <input type="file" accept="image/*" onChange={(e) => handleSelectPhoto(e, true)} style={{ display: 'none' }} />
                 </label>
               </div>
@@ -1055,6 +1327,305 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
           </div>
         </div>
       )}
+
+      {/* 6. INTERACTIVE 1:1 SQUARE IMAGE CROPPER MODAL */}
+      {cropSession.isOpen && (
+        <OfficePhotoCropperModal
+          imageSrc={cropSession.rawImageSrc}
+          onSelectNewFile={(e) => handleSelectPhoto(e, cropSession.isEdit)}
+          onCancel={() => setCropSession({ isOpen: false, isEdit: false, rawImageSrc: '' })}
+          onCropComplete={handleApplyCrop}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Interactive HTML5 Canvas 1:1 Square Image Cropper Modal (Zero CORS Failure + Fallback Upload) */
+function OfficePhotoCropperModal({ imageSrc, onSelectNewFile, onCancel, onCropComplete }) {
+  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const VIEWPORT_SIZE = 280;
+  const OUTPUT_SIZE = 480;
+
+  useEffect(() => {
+    setImgLoaded(false);
+    setLoadError(false);
+    const img = new Image();
+
+    // Only set crossOrigin if it is NOT a data: URL, and fallback cleanly if bucket blocks CORS
+    if (imageSrc && !imageSrc.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+
+    img.onload = () => {
+      imgRef.current = img;
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      setImgLoaded(true);
+    };
+
+    img.onerror = () => {
+      // Legacy Firebase Storage URL without CORS header: prompt user to pick local image
+      setLoadError(true);
+    };
+
+    img.src = imageSrc;
+  }, [imageSrc]);
+
+  const clampPan = useCallback((candidateX, candidateY, currentZoom) => {
+    const img = imgRef.current;
+    if (!img) return { x: 0, y: 0 };
+
+    const baseScale = Math.max(VIEWPORT_SIZE / img.width, VIEWPORT_SIZE / img.height);
+    const drawnWidth = img.width * baseScale * currentZoom;
+    const drawnHeight = img.height * baseScale * currentZoom;
+
+    const maxOffsetX = Math.max(0, (drawnWidth - VIEWPORT_SIZE) / 2);
+    const maxOffsetY = Math.max(0, (drawnHeight - VIEWPORT_SIZE) / 2);
+
+    return {
+      x: Math.max(-maxOffsetX, Math.min(maxOffsetX, candidateX)),
+      y: Math.max(-maxOffsetY, Math.min(maxOffsetY, candidateY))
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!imgLoaded || !imgRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const img = imgRef.current;
+
+    ctx.clearRect(0, 0, VIEWPORT_SIZE, VIEWPORT_SIZE);
+    ctx.fillStyle = '#0F172A';
+    ctx.fillRect(0, 0, VIEWPORT_SIZE, VIEWPORT_SIZE);
+
+    const baseScale = Math.max(VIEWPORT_SIZE / img.width, VIEWPORT_SIZE / img.height);
+    const finalScale = baseScale * zoom;
+    const drawW = img.width * finalScale;
+    const drawH = img.height * finalScale;
+    const drawX = (VIEWPORT_SIZE - drawW) / 2 + pan.x;
+    const drawY = (VIEWPORT_SIZE - drawH) / 2 + pan.y;
+
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+
+    // 3x3 Rule-of-Thirds Grid Overlay
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1;
+    const third = VIEWPORT_SIZE / 3;
+    ctx.beginPath();
+    ctx.moveTo(third, 0); ctx.lineTo(third, VIEWPORT_SIZE);
+    ctx.moveTo(third * 2, 0); ctx.lineTo(third * 2, VIEWPORT_SIZE);
+    ctx.moveTo(0, third); ctx.lineTo(VIEWPORT_SIZE, third);
+    ctx.moveTo(0, third * 2); ctx.lineTo(VIEWPORT_SIZE, third * 2);
+    ctx.stroke();
+  }, [imgLoaded, zoom, pan]);
+
+  const handlePointerDown = (clientX, clientY) => {
+    if (!imgLoaded) return;
+    setIsDragging(true);
+    setDragStart({ x: clientX - pan.x, y: clientY - pan.y });
+  };
+
+  const handlePointerMove = (clientX, clientY) => {
+    if (!isDragging || !imgLoaded) return;
+    const nextX = clientX - dragStart.x;
+    const nextY = clientY - dragStart.y;
+    setPan(clampPan(nextX, nextY, zoom));
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleZoomChange = (nextZoom) => {
+    const clampedZ = Math.max(1, Math.min(3, nextZoom));
+    setZoom(clampedZ);
+    setPan(prev => clampPan(prev.x, prev.y, clampedZ));
+  };
+
+  const handleExportCroppedImage = () => {
+    const img = imgRef.current;
+    if (!img) return;
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = OUTPUT_SIZE;
+    outCanvas.height = OUTPUT_SIZE;
+    const outCtx = outCanvas.getContext('2d');
+
+    const ratio = OUTPUT_SIZE / VIEWPORT_SIZE;
+    const baseScale = Math.max(VIEWPORT_SIZE / img.width, VIEWPORT_SIZE / img.height);
+    const finalScale = baseScale * zoom * ratio;
+
+    const drawW = img.width * finalScale;
+    const drawH = img.height * finalScale;
+    const drawX = (OUTPUT_SIZE - drawW) / 2 + pan.x * ratio;
+    const drawY = (OUTPUT_SIZE - drawH) / 2 + pan.y * ratio;
+
+    outCtx.fillStyle = '#FFFFFF';
+    outCtx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+    outCtx.drawImage(img, drawX, drawY, drawW, drawH);
+
+    // Exports self-contained compressed DataURL (~28KB) that never suffers from CORS issues!
+    const dataUrl = outCanvas.toDataURL('image/jpeg', 0.76);
+    onCropComplete({ dataUrl });
+  };
+
+  return (
+    <div className="quest-modal-backdrop" onClick={onCancel}>
+      <div
+        className="quest-modal-card"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: '410px', textAlign: 'center' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', textAlign: 'left' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div className="quest-modal-icon-badge primary">
+              <Crop size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '18px', color: '#0F172A' }}>Crop Office Photo (1:1)</h3>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>
+                Drag to reposition and slide to zoom
+              </p>
+            </div>
+          </div>
+          <button onClick={onCancel} className="quest-toast-close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {loadError ? (
+          <div style={{
+            padding: '32px 20px',
+            backgroundColor: '#F8FAFC',
+            borderRadius: '16px',
+            border: '1.5px dashed #CBD5E1',
+            marginBottom: '18px'
+          }}>
+            <p style={{ fontSize: '13px', color: '#475569', margin: '0 0 14px', lineHeight: 1.5 }}>
+              This older cloud image was uploaded before the 1:1 cropper was added. Please select the image file from your computer to crop it in 1:1 ratio:
+            </p>
+            <label className="quest-btn quest-btn-primary" style={{ cursor: 'pointer', display: 'inline-flex' }}>
+              <ImagePlus size={16} /> Choose Image File to Crop
+              <input type="file" accept="image/*" onChange={onSelectNewFile} style={{ display: 'none' }} />
+            </label>
+          </div>
+        ) : (
+          <>
+            {/* 1:1 Interactive Drag & Zoom Canvas */}
+            <div
+              style={{
+                position: 'relative',
+                width: `${VIEWPORT_SIZE}px`,
+                height: `${VIEWPORT_SIZE}px`,
+                margin: '0 auto 14px',
+                borderRadius: '18px',
+                overflow: 'hidden',
+                border: '2.5px solid var(--quest-primary, #9E0B03)',
+                boxShadow: '0 12px 28px rgba(15, 23, 42, 0.14)',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                touchAction: 'none',
+                userSelect: 'none'
+              }}
+              onMouseDown={(e) => handlePointerDown(e.clientX, e.clientY)}
+              onMouseMove={(e) => handlePointerMove(e.clientX, e.clientY)}
+              onMouseUp={handlePointerUp}
+              onMouseLeave={handlePointerUp}
+              onTouchStart={(e) => {
+                const t = e.touches[0];
+                if (t) handlePointerDown(t.clientX, t.clientY);
+              }}
+              onTouchMove={(e) => {
+                const t = e.touches[0];
+                if (t) handlePointerMove(t.clientX, t.clientY);
+              }}
+              onTouchEnd={handlePointerUp}
+            >
+              <canvas
+                ref={canvasRef}
+                width={VIEWPORT_SIZE}
+                height={VIEWPORT_SIZE}
+                style={{ display: 'block', width: '100%', height: '100%' }}
+              />
+              <div style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(15, 23, 42, 0.72)',
+                color: '#FFFFFF',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                pointerEvents: 'none'
+              }}>
+                <Move size={12} /> Drag to Reposition (1:1)
+              </div>
+            </div>
+
+            {/* Zoom Slider Bar */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              backgroundColor: '#F8FAFC',
+              padding: '10px 14px',
+              borderRadius: '12px',
+              border: '1px solid #E2E8F0',
+              marginBottom: '18px'
+            }}>
+              <ZoomOut
+                size={16}
+                color="#64748B"
+                style={{ cursor: 'pointer', flexShrink: 0 }}
+                onClick={() => handleZoomChange(zoom - 0.15)}
+              />
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.02"
+                value={zoom}
+                onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                style={{ flex: 1, accentColor: 'var(--quest-primary, #9E0B03)', cursor: 'pointer' }}
+              />
+              <ZoomIn
+                size={16}
+                color="#64748B"
+                style={{ cursor: 'pointer', flexShrink: 0 }}
+                onClick={() => handleZoomChange(zoom + 0.15)}
+              />
+              <span style={{ fontSize: '12px', fontWeight: 800, color: '#0F172A', minWidth: '38px', textAlign: 'right' }}>
+                {zoom.toFixed(1)}x
+              </span>
+            </div>
+          </>
+        )}
+
+        <div className="quest-modal-actions">
+          <button type="button" onClick={onCancel} className="quest-btn quest-btn-outline">
+            Back to Office Form
+          </button>
+          {!loadError && (
+            <button type="button" disabled={!imgLoaded} onClick={handleExportCroppedImage} className="quest-btn quest-btn-primary">
+              <Crop size={15} /> Apply 1:1 Crop
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

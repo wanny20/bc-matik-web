@@ -39,6 +39,66 @@ function AppContent() {
   const [notifMenuOpen, setNotifMenuOpen] = useState(false);
   const [adminDocAlerts, setAdminDocAlerts] = useState([]);
 
+  const [announcementModalText, setAnnouncementModalText] = useState(null);
+  // 1. Live Internet Connection Monitor (Shows Toast on Offline / Online)
+  useEffect(() => {
+    const handleOffline = () => {
+      showToast(
+        'You are currently offline. Live queue updates will pause until internet is restored.',
+        'error',
+        'No Internet Connection'
+      );
+    };
+    const handleOnline = () => {
+      showToast(
+        'Your internet connection has been restored. Syncing live queues...',
+        'success',
+        'Back Online'
+      );
+    };
+
+    if (!navigator.onLine) {
+      handleOffline();
+    }
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [showToast]);
+
+const [broadcastModalData, setBroadcastModalData] = useState(null);
+
+  // 2. Real-Time Global Announcement & Allowed Programs Schedule Listener
+  useEffect(() => {
+    if (!user || !role) return;
+    const unsubGlobal = onSnapshot(doc(db, 'settings', 'global'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const latestBanner = (data.appAnnouncement || 'All campus service offices are open for queuing today.').trim();
+        const mode = data.accessMode || 'ALL';
+        const progs = Array.isArray(data.allowedPrograms) ? [...data.allowedPrograms].sort() : ['ALL'];
+        const hours = data.operatingHours || { start: '08:00', end: '17:00' };
+
+        const signature = `${mode}|${progs.join(',')}|${latestBanner}`;
+        const lastSeen = localStorage.getItem('bcmatik_last_seen_schedule_sig') || '';
+
+        if (signature !== lastSeen) {
+          setBroadcastModalData({
+            signature,
+            banner: latestBanner,
+            accessMode: mode,
+            allowedPrograms: progs,
+            hours: `${hours.start || '08:00'} - ${hours.end || '17:00'}`
+          });
+        }
+      }
+    });
+    return () => unsubGlobal();
+  }, [user, role]);
+
   useEffect(() => {
     if (!user || !role) return;
     const q = query(
@@ -540,6 +600,90 @@ function AppContent() {
           ) : <Navigate to="/" replace />
         } />
       </Routes>
+{/* GLOBAL ANNOUNCEMENT & ALLOWED PROGRAMS SCHEDULE MODAL */}
+      {broadcastModalData && (
+        <div
+          className="quest-modal-backdrop"
+          onClick={() => {
+            localStorage.setItem('bcmatik_last_seen_schedule_sig', broadcastModalData.signature);
+            setBroadcastModalData(null);
+          }}
+        >
+          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="quest-modal-icon-badge primary">
+                  <Bell size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: '#0F172A' }}>Campus Schedule & Broadcast</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>
+                    Live Gatekeeper & Announcement Update
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  localStorage.setItem('bcmatik_last_seen_schedule_sig', broadcastModalData.signature);
+                  setBroadcastModalData(null);
+                }}
+                className="quest-toast-close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{
+              padding: '14px 16px',
+              backgroundColor: '#FCEAE9',
+              border: '1px solid #F5D0CE',
+              borderRadius: '14px',
+              color: '#0F172A',
+              fontSize: '13.5px',
+              fontWeight: 600,
+              lineHeight: 1.55,
+              marginBottom: '14px'
+            }}>
+              {broadcastModalData.banner}
+            </div>
+
+            <div className="quest-detail-box" style={{ marginBottom: '20px' }}>
+              <div className="quest-detail-row">
+                <span className="quest-detail-label">Queue Access Mode</span>
+                <span className={`quest-badge ${broadcastModalData.accessMode === 'ALL' ? 'badge-success' : 'badge-warning'}`}>
+                  {broadcastModalData.accessMode === 'ALL' ? 'OPEN TO ALL' : 'SCHEDULED BY PROGRAM'}
+                </span>
+              </div>
+              <div className="quest-detail-row">
+                <span className="quest-detail-label">Allowed Programs Today</span>
+                <span className="quest-detail-value" style={{ maxWidth: '240px', textAlign: 'right' }}>
+                  {broadcastModalData.accessMode === 'ALL' || broadcastModalData.allowedPrograms.includes('ALL')
+                    ? 'All Academic Programs & Guests'
+                    : broadcastModalData.allowedPrograms.join(', ')}
+                </span>
+              </div>
+              <div className="quest-detail-row">
+                <span className="quest-detail-label">Operating Hours</span>
+                <span className="quest-detail-value">{broadcastModalData.hours}</span>
+              </div>
+            </div>
+
+            <div className="quest-modal-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('bcmatik_last_seen_schedule_sig', broadcastModalData.signature);
+                  setBroadcastModalData(null);
+                }}
+                className="quest-btn quest-btn-primary"
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                Acknowledge & Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </BrowserRouter>
   );
 }

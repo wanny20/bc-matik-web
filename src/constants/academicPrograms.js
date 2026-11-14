@@ -7,7 +7,7 @@ export const ACADEMIC_DIVISIONS = [
   { id: 'CCS', label: 'Computer Studies' },
   { id: 'LAW', label: 'School of Law' },
   { id: 'GRADUATE', label: 'Graduate School' },
-  { id: 'EXTERNAL', label: 'Alumni & Guests' }
+  { id: 'EXTERNAL', label: 'Alumni & Faculty' }
 ];
 
 export const BC_PROGRAMS = {
@@ -48,8 +48,15 @@ export const BC_PROGRAMS = {
   ],
   EXTERNAL: [
     { code: 'ALUMNI', name: 'Bicol College Alumni / Graduate' },
+    { code: 'FACULTY', name: 'Bicol College Faculty Member' },
     { code: 'GUEST', name: 'Walk-In Guest / Parent / Visitor' }
   ]
+};
+
+// Official Roster Programs (Excludes Walk-In 'GUEST' from Student & Alumni Roster registration)
+export const ROSTER_PROGRAMS = {
+  ...BC_PROGRAMS,
+  EXTERNAL: BC_PROGRAMS.EXTERNAL.filter(p => p.code !== 'GUEST')
 };
 
 // Backwards-compatibility alias for any legacy 'COLLEGE' student records

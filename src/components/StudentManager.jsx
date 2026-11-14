@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useUI } from './UIContext';
 import { SkeletonTableRows } from './Skeleton';
-import { ACADEMIC_DIVISIONS, BC_PROGRAMS } from '../constants/academicPrograms';
+import { ACADEMIC_DIVISIONS, ROSTER_PROGRAMS } from '../constants/academicPrograms';
 import TablePagination from './TablePagination';
 
 const sanitizeNameInput = (raw) => {
@@ -23,6 +23,25 @@ const formatFullName = (first, middle, last) => {
   const l = (last || '').trim();
   if (!l && !f) return '';
   return m ? `${l}, ${f} ${m}` : `${l}, ${f}`;
+};
+
+// Normalizes course so legacy 'GUEST' entries in the roster display as 'ALUMNI'
+const normalizeRosterCourse = (studentObj) => {
+  const rawCourse = (studentObj?.course || '').toUpperCase().trim();
+  if (rawCourse === 'GUEST') return 'ALUMNI';
+  return rawCourse || 'BSCS';
+};
+
+// Ensures Alumni / External records never display "Year 1"
+const formatStudentYearDisplay = (studentObj) => {
+  const course = normalizeRosterCourse(studentObj);
+  const div = (studentObj?.division || '').toUpperCase().trim();
+  const yr = String(studentObj?.year || '').toUpperCase().trim();
+
+  if (div === 'EXTERNAL' || course === 'ALUMNI' || yr === 'GRADUATED' || yr === 'N/A') {
+    return course === 'FACULTY' ? '— (Faculty)' : '— (Alumni)';
+  }
+  return `Year ${yr || '1'}`;
 };
 
 const parseLegacyStudentName = (studentObj) => {
@@ -149,6 +168,7 @@ export default function StudentManager({ setAdminSection }) {
       return {
         id: d.id,
         ...data,
+        course: normalizeRosterCourse(data),
         name: (data.name || '').toUpperCase()
       };
     }));
@@ -175,7 +195,7 @@ export default function StudentManager({ setAdminSection }) {
   };
 
   const handleDivisionChange = (newDiv) => {
-    const defaultProg = BC_PROGRAMS[newDiv]?.[0]?.code || '';
+    const defaultProg = ROSTER_PROGRAMS[newDiv]?.[0]?.code || '';
     const defaultYear = newDiv === 'EXTERNAL' ? 'GRADUATED' : '1';
     setManualData({ ...manualData, division: newDiv, course: defaultProg, year: defaultYear });
     if (errors.division || errors.course) {
@@ -184,8 +204,8 @@ export default function StudentManager({ setAdminSection }) {
   };
 
   const handleEditDivisionChange = (newDiv) => {
-    const defaultProg = BC_PROGRAMS[newDiv]?.[0]?.code || '';
-    const defaultYear = newDiv === 'EXTERNAL' ? 'GRADUATED' : editData.year;
+    const defaultProg = ROSTER_PROGRAMS[newDiv]?.[0]?.code || '';
+    const defaultYear = newDiv === 'EXTERNAL' ? 'GRADUATED' : (editData.year === 'GRADUATED' ? '1' : editData.year);
     setEditData({ ...editData, division: newDiv, course: defaultProg, year: defaultYear });
   };
 
@@ -214,7 +234,10 @@ export default function StudentManager({ setAdminSection }) {
     }
     if (!manualData.division) newErrors.division = 'Department / Group is required';
     if (!manualData.course) newErrors.course = 'Program / Course is required';
-    if (!String(manualData.year).trim()) newErrors.year = 'Year / Status is required';
+
+    const finalYear = manualData.division === 'EXTERNAL' || manualData.course === 'ALUMNI' || manualData.course === 'FACULTY'
+      ? 'GRADUATED'
+      : String(manualData.year || '1').trim();
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -241,15 +264,16 @@ export default function StudentManager({ setAdminSection }) {
         middle_name: cleanMiddle,
         last_name: cleanLast,
         name: combinedName,
+        password: cleanPass,
         initial_password: cleanPass,
         division: manualData.division,
         course: manualData.course.toUpperCase().trim(),
-        year: String(manualData.year).trim(),
+        year: finalYear,
         registered_at: new Date(),
         status: 'active'
       });
       
-      showToast(`${combinedName} (${manualData.course}) added to the roster.`, 'success', 'Student Registered');
+      showToast(`${combinedName} (${manualData.course}) added to the roster.`, 'success', 'Client Registered');
       setManualData({
         first_name: '',
         middle_name: '',
@@ -274,14 +298,18 @@ export default function StudentManager({ setAdminSection }) {
 
   const openEditModal = (student) => {
     const parsed = parseLegacyStudentName(student);
+    const cleanDiv = student.division || 'CCS';
+    const cleanCourse = normalizeRosterCourse(student);
+    const isExt = cleanDiv === 'EXTERNAL' || cleanCourse === 'ALUMNI' || cleanCourse === 'FACULTY';
+
     setEditingStudent(student);
     setEditData({
       first_name: parsed.first,
       middle_name: parsed.middle,
       last_name: parsed.last,
-      division: student.division || 'CCS',
-      course: student.course || 'BSCS',
-      year: String(student.year || '1')
+      division: cleanDiv,
+      course: cleanCourse,
+      year: isExt ? 'GRADUATED' : String(student.year || '1')
     });
     setEditErrors({});
   };
@@ -299,6 +327,9 @@ export default function StudentManager({ setAdminSection }) {
     }
 
     const updatedFullName = formatFullName(editData.first_name, editData.middle_name, editData.last_name);
+    const finalYear = editData.division === 'EXTERNAL' || editData.course === 'ALUMNI' || editData.course === 'FACULTY'
+      ? 'GRADUATED'
+      : String(editData.year || '1').trim();
 
     setIsUpdating(true);
     try {
@@ -309,7 +340,7 @@ export default function StudentManager({ setAdminSection }) {
         name: updatedFullName,
         division: editData.division,
         course: editData.course.toUpperCase().trim(),
-        year: String(editData.year).trim(),
+        year: finalYear,
         updated_at: new Date()
       });
       showToast(`Updated record for ${updatedFullName}.`, 'success', 'Student Updated');
@@ -350,7 +381,7 @@ export default function StudentManager({ setAdminSection }) {
     }
     const headers = ['Registered Date,Student ID,Full Name,Department,Program,Year'];
     const rows = filteredStudents.map(s => 
-      `"${formatStudentDate(s)}","${s.student_id || ''}","${s.name || ''}","${s.division || 'COLLEGE'}","${s.course || ''}","${s.year === 'GRADUATED' ? 'Alumni' : `Year ${s.year || '1'}`}"`
+      `"${formatStudentDate(s)}","${s.student_id || ''}","${s.name || ''}","${s.division || 'COLLEGE'}","${s.course || ''}","${formatStudentYearDisplay(s)}"`
     );
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
     const link = document.createElement('a');
@@ -376,7 +407,7 @@ export default function StudentManager({ setAdminSection }) {
         <td>${s.name || ''}</td>
         <td>${s.division || 'COLLEGE'}</td>
         <td>${s.course || ''}</td>
-        <td>${s.year === 'GRADUATED' ? 'Alumni' : `Year ${s.year || '1'}`}</td>
+        <td>${formatStudentYearDisplay(s)}</td>
       </tr>
     `).join('');
 
@@ -393,7 +424,7 @@ export default function StudentManager({ setAdminSection }) {
               <th>Full Name</th>
               <th>Department</th>
               <th>Program</th>
-              <th>Year</th>
+              <th>Year / Status</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -434,7 +465,7 @@ export default function StudentManager({ setAdminSection }) {
         <td>${s.name || ''}</td>
         <td>${s.division || 'COLLEGE'}</td>
         <td>${s.course || ''}</td>
-        <td>${s.year === 'GRADUATED' ? 'Alumni' : `Year ${s.year || '1'}`}</td>
+        <td>${formatStudentYearDisplay(s)}</td>
       </tr>
     `).join('');
 
@@ -470,7 +501,7 @@ export default function StudentManager({ setAdminSection }) {
                 <th>Full Name</th>
                 <th>Department</th>
                 <th>Program</th>
-                <th>Year</th>
+                <th>Year / Status</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -532,7 +563,7 @@ export default function StudentManager({ setAdminSection }) {
       editData.middle_name.trim() !== orig.middle ||
       editData.last_name.trim() !== orig.last ||
       editData.division !== (editingStudent.division || 'CCS') ||
-      editData.course !== (editingStudent.course || 'BSCS') ||
+      editData.course !== normalizeRosterCourse(editingStudent) ||
       String(editData.year) !== String(editingStudent.year || '1');
 
     if (!isDirty) {
@@ -547,6 +578,9 @@ export default function StudentManager({ setAdminSection }) {
       onConfirm: () => setEditingStudent(null)
     });
   };
+
+  const isAddExternal = manualData.division === 'EXTERNAL' || manualData.course === 'ALUMNI' || manualData.course === 'FACULTY';
+  const isEditExternal = editData.division === 'EXTERNAL' || editData.course === 'ALUMNI' || editData.course === 'FACULTY';
 
   return (
     <div>
@@ -778,7 +812,9 @@ export default function StudentManager({ setAdminSection }) {
                       </span>
                     </td>
                     <td style={{ fontWeight: 700 }}>{student.course}</td>
-                    <td>{student.year === 'GRADUATED' ? 'Alumni' : `Year ${student.year}`}</td>
+                    <td style={{ color: student.division === 'EXTERNAL' || student.course === 'ALUMNI' ? '#64748B' : 'inherit', fontWeight: 600 }}>
+                      {formatStudentYearDisplay(student)}
+                    </td>
                     <td>
                       <div className="quest-action-group">
                         <button
@@ -982,7 +1018,7 @@ export default function StudentManager({ setAdminSection }) {
                 </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isAddExternal ? '1fr' : '1.6fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
                     Program / Course <span className="quest-req-star">*</span>
@@ -992,29 +1028,30 @@ export default function StudentManager({ setAdminSection }) {
                     value={manualData.course} 
                     onChange={e => setManualData({...manualData, course: e.target.value})}
                   >
-                    {(BC_PROGRAMS[manualData.division] || []).map(prog => (
+                    {(ROSTER_PROGRAMS[manualData.division] || []).map(prog => (
                       <option key={prog.code} value={prog.code}>{prog.code} — {prog.name}</option>
                     ))}
                   </select>
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
-                    Year / Status <span className="quest-req-star">*</span>
-                  </label>
-                  <select 
-                    className="quest-input" 
-                    value={manualData.year} 
-                    onChange={e => setManualData({...manualData, year: e.target.value})}
-                  >
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    <option value="3">3rd Year</option>
-                    <option value="4">4th Year</option>
-                    <option value="5">5th Year</option>
-                    <option value="GRADUATED">Alumni / Graduated</option>
-                  </select>
-                </div>
+                {!isAddExternal && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
+                      Year Level <span className="quest-req-star">*</span>
+                    </label>
+                    <select 
+                      className="quest-input" 
+                      value={manualData.year} 
+                      onChange={e => setManualData({...manualData, year: e.target.value})}
+                    >
+                      <option value="1">1st Year</option>
+                      <option value="2">2nd Year</option>
+                      <option value="3">3rd Year</option>
+                      <option value="4">4th Year</option>
+                      <option value="5">5th Year</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="quest-modal-actions" style={{ marginTop: '10px' }}>
@@ -1079,8 +1116,8 @@ export default function StudentManager({ setAdminSection }) {
                 <span className="quest-detail-value">{viewingStudent.course}</span>
               </div>
               <div className="quest-detail-row">
-                <span className="quest-detail-label">Year Level</span>
-                <span className="quest-detail-value">{viewingStudent.year === 'GRADUATED' ? 'Alumni / Graduated' : `Year ${viewingStudent.year}`}</span>
+                <span className="quest-detail-label">Year / Status</span>
+                <span className="quest-detail-value">{formatStudentYearDisplay(viewingStudent)}</span>
               </div>
               <div className="quest-detail-row">
                 <span className="quest-detail-label">Email Notifications</span>
@@ -1188,31 +1225,32 @@ export default function StudentManager({ setAdminSection }) {
                 </select>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isEditExternal ? '1fr' : '1.6fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
                     Program / Course <span className="quest-req-star">*</span>
                   </label>
                   <select className="quest-input" value={editData.course} onChange={(e) => setEditData({ ...editData, course: e.target.value })}>
-                    {(BC_PROGRAMS[editData.division] || []).map(prog => (
+                    {(ROSTER_PROGRAMS[editData.division] || []).map(prog => (
                       <option key={prog.code} value={prog.code}>{prog.code} — {prog.name}</option>
                     ))}
                   </select>
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
-                    Year / Status <span className="quest-req-star">*</span>
-                  </label>
-                  <select className="quest-input" value={editData.year} onChange={(e) => setEditData({ ...editData, year: e.target.value })}>
-                    <option value="1">1st Year</option>
-                    <option value="2">2nd Year</option>
-                    <option value="3">3rd Year</option>
-                    <option value="4">4th Year</option>
-                    <option value="5">5th Year</option>
-                    <option value="GRADUATED">Alumni / Graduated</option>
-                  </select>
-                </div>
+                {!isEditExternal && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
+                      Year Level <span className="quest-req-star">*</span>
+                    </label>
+                    <select className="quest-input" value={editData.year} onChange={(e) => setEditData({ ...editData, year: e.target.value })}>
+                      <option value="1">1st Year</option>
+                      <option value="2">2nd Year</option>
+                      <option value="3">3rd Year</option>
+                      <option value="4">4th Year</option>
+                      <option value="5">5th Year</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="quest-modal-actions" style={{ marginTop: '8px' }}>
