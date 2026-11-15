@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, arrayUnion, arrayRemove, query, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { Building2, Plus, Power, MonitorUp, Trash2, X, Eye, Edit3, KeyRound, RefreshCw, ImagePlus, Users, Crop, ZoomIn, ZoomOut, Move, QrCode, Printer } from 'lucide-react';
 import { useUI } from './UIContext';
@@ -507,37 +507,179 @@ const getOfficeArrivalToken = (officeObj) => {
     setIsUpdatingOffice(false);
   };
 
-  const handleDeleteOffice = (office) => {
+const handleDeleteOffice = async (office) => {
     if (isMiniAdmin) {
       showToast('Only the Super Administrator can delete an office.', 'warning', 'Restricted');
       return;
     }
-    confirmAction({
-      title: `Delete ${office.office_name}?`,
-      message: `Are you sure you want to permanently remove "${office.office_name}" from the system? This cannot be undone.`,
-      confirmText: 'Delete Office',
-      variant: 'danger',
-      onConfirm: async () => {
-        await deleteDoc(doc(db, 'offices', office.id));
-        showToast(`"${office.office_name}" has been deleted.`, 'success', 'Office Removed');
-        fetchOffices();
-      }
-    });
-  };
 
-  const toggleStatus = (office) => {
-    if (office.is_online) {
+    const activeStatuses = [
+      'booked',
+      'active',
+      'called',
+      'pending_requirements',
+      'resolved_requirements',
+      'processing',
+      'ready_for_pickup'
+    ];
+
+    try {
+      // 1. Check if anyone is currently queuing or has a pending/processing document in this office
+      const ticketsQuery = query(
+        collection(db, 'tickets'),
+        where('target_office_id', '==', office.office_name)
+      );
+      const ticketsSnap = await getDocs(ticketsQuery);
+      const blockingTickets = ticketsSnap.docs
+        .map(d => d.data())
+        .filter(t => activeStatuses.includes(t.status));
+
+      if (blockingTickets.length > 0) {
+        const liveQueueCount = blockingTickets.filter(t =>
+          ['booked', 'active', 'called', 'pending_requirements', 'resolved_requirements'].includes(t.status)
+        ).length;
+        const releaseCount = blockingTickets.filter(t =>
+          ['processing', 'ready_for_pickup'].includes(t.status)
+        ).length;
+
+        showToast(
+          `Cannot delete "${office.office_name}": ${blockingTickets.length} active record(s) found (${liveQueueCount} in queue, ${releaseCount} in document processing/release). Complete or cancel them first.`,
+          'error',
+          'Deletion Blocked — Active Queue'
+        );
+        return;
+      }
+
+      // 2. Check if any Guided Workflow still routes through this office
+      const workflowsSnap = await getDocs(collection(db, 'workflows'));
+      const linkedWorkflows = workflowsSnap.docs
+        .map(d => d.data())
+        .filter(wf =>
+          Array.isArray(wf.steps) &&
+          wf.steps.some(step => String(step).toLowerCase() === office.office_name.toLowerCase())
+        );
+
+      if (linkedWorkflows.length > 0) {
+        const wfNames = linkedWorkflows.map(w => `"${w.title}"`).join(', ');
+        showToast(
+          `Cannot delete "${office.office_name}" because it is part of ${linkedWorkflows.length} workflow(s): ${wfNames}. Remove it from those workflows first.`,
+          'warning',
+          'Linked to Active Workflow'
+        );
+        return;
+      }
+
+      // 3. Safe to confirm and delete
       confirmAction({
-        title: `Take ${office.office_name} Offline?`,
-        message: `Taking ${office.office_name} offline will hide it from the student mobile app and Hallway TV immediately.`,
-        confirmText: 'Take Offline',
+        title: `Delete ${office.office_name}?`,
+        message: `Verified 0 active queues and 0 linked workflows for "${office.office_name}". Are you sure you want to permanently remove this office from the system?`,
+        confirmText: 'Delete Office',
         variant: 'danger',
         onConfirm: async () => {
-          await updateDoc(doc(db, 'offices', office.id), { is_online: false });
-          showToast(`${office.office_name} is now offline.`, 'warning', 'Status Updated');
+          await deleteDoc(doc(db, 'offices', office.id));
+          showToast(`"${office.office_name}" has been deleted.`, 'success', 'Office Removed');
           fetchOffices();
         }
       });
+    } catch (error) {
+      console.error('Error checking office dependencies:', error);
+      showToast('Failed to verify active queues for this office.', 'error');
+    }
+  };
+
+  const handleRemoveWindow = async (windowName) => {
+    if (!managingOffice) return;
+
+    if ((managingOffice.windows || []).length <= 1) {
+      showToast(`"${managingOffice.office_name}" must have at least 1 service window.`, 'warning', 'Minimum Window Required');
+      return;
+    }
+
+    try {
+      const calledAtWindowQuery = query(
+        collection(db, 'tickets'),
+        where('target_office_id', '==', managingOffice.office_name),
+        where('status', '==', 'called'),
+        where('window_number', '==', windowName)
+      );
+      const calledSnap = await getDocs(calledAtWindowQuery);
+
+      if (!calledSnap.empty) {
+        const activeTicketNum = calledSnap.docs[0].data().queue_number || 'a client';
+        showToast(
+          `Cannot remove "${windowName}" while it is currently serving Ticket ${activeTicketNum}. Complete the transaction first.`,
+          'error',
+          'Window Currently Serving'
+        );
+        return;
+      }
+
+      confirmAction({
+        title: 'Remove Service Window',
+        message: `Are you sure you want to remove "${windowName}" from ${managingOffice.office_name}?`,
+        confirmText: 'Remove Window',
+        variant: 'danger',
+        onConfirm: async () => {
+          await updateDoc(doc(db, 'offices', managingOffice.id), {
+            windows: arrayRemove(windowName)
+          });
+          showToast(`Removed ${windowName} from ${managingOffice.office_name}.`, 'success');
+          fetchOffices();
+          setManagingOffice({ ...managingOffice, windows: managingOffice.windows.filter(w => w !== windowName) });
+        }
+      });
+    } catch (e) {
+      showToast('Failed to check window status.', 'error');
+    }
+  };
+
+const toggleStatus = async (office) => {
+    if (office.is_online) {
+      try {
+        const liveStatuses = [
+          'booked',
+          'active',
+          'called',
+          'pending_requirements',
+          'resolved_requirements'
+        ];
+        const q = query(
+          collection(db, 'tickets'),
+          where('target_office_id', '==', office.office_name)
+        );
+        const snap = await getDocs(q);
+        const affectedTickets = snap.docs
+          .map(d => d.data())
+          .filter(t => liveStatuses.includes(t.status));
+
+        const inHallwayCount = affectedTickets.filter(t =>
+          ['active', 'called', 'resolved_requirements'].includes(t.status)
+        ).length;
+        const bookedCount = affectedTickets.filter(t =>
+          ['booked', 'pending_requirements'].includes(t.status)
+        ).length;
+
+        const queueWarningText = affectedTickets.length > 0
+          ? `WARNING: There are currently ${affectedTickets.length} active queue(s) for ${office.office_name} (${inHallwayCount} waiting/serving in hallway, ${bookedCount} pre-booked or on hold).\n\nTaking ${office.office_name} offline will hide it from new bookings on the mobile app and Hallway TV immediately.`
+          : `Verified 0 active queues waiting for ${office.office_name}. Taking ${office.office_name} offline will hide it from the student mobile app and Hallway TV immediately.`;
+
+        confirmAction({
+          title: affectedTickets.length > 0
+            ? `Take ${office.office_name} Offline (${affectedTickets.length} in Queue)?`
+            : `Take ${office.office_name} Offline?`,
+          message: queueWarningText,
+          confirmText: affectedTickets.length > 0 ? 'Take Offline Anyway' : 'Take Offline',
+          variant: 'danger',
+          onConfirm: async () => {
+            await updateDoc(doc(db, 'offices', office.id), { is_online: false });
+            showToast(`${office.office_name} is now offline.`, 'warning', 'Status Updated');
+            fetchOffices();
+          }
+        });
+      } catch (e) {
+        console.error('Error checking active queues before taking offline:', e);
+        showToast('Failed to check live queue count for this office.', 'error');
+      }
     } else {
       updateDoc(doc(db, 'offices', office.id), { is_online: true }).then(() => {
         showToast(`${office.office_name} is now online and visible to students.`, 'success', 'Status Updated');
@@ -575,23 +717,6 @@ const getOfficeArrivalToken = (officeObj) => {
     showToast(`Added ${windowNameToAdd} to ${managingOffice.office_name}.`, 'success');
     fetchOffices();
     setManagingOffice({ ...managingOffice, windows: [...(managingOffice.windows || []), windowNameToAdd] });
-  };
-
-  const handleRemoveWindow = (windowName) => {
-    confirmAction({
-      title: 'Remove Service Window',
-      message: `Are you sure you want to remove "${windowName}" from ${managingOffice.office_name}?`,
-      confirmText: 'Remove Window',
-      variant: 'danger',
-      onConfirm: async () => {
-        await updateDoc(doc(db, 'offices', managingOffice.id), {
-          windows: arrayRemove(windowName)
-        });
-        showToast(`Removed ${windowName} from ${managingOffice.office_name}.`, 'success');
-        fetchOffices();
-        setManagingOffice({ ...managingOffice, windows: managingOffice.windows.filter(w => w !== windowName) });
-      }
-    });
   };
 
   const guardModalClose = (isDirty, closeFn) => {

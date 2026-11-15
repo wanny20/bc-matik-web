@@ -39,18 +39,20 @@ const isStudentPriority = (studentObj) => {
   return Boolean(studentObj?.is_priority_eligible);
 };
 
-// Ensures Alumni / External records never display "Year 1"
+// Ensures Alumni / External records never display "Year 1" and shows former program if graduated
 const formatStudentYearDisplay = (studentObj) => {
   const course = normalizeRosterCourse(studentObj);
   const div = (studentObj?.division || '').toUpperCase().trim();
   const yr = String(studentObj?.year || '').toUpperCase().trim();
 
   if (div === 'EXTERNAL' || course === 'ALUMNI' || course === 'FACULTY' || yr === 'GRADUATED' || yr === 'N/A') {
-    return course === 'FACULTY' ? '— (Faculty)' : '— (Alumni)';
+    if (course === 'FACULTY') return '— (Faculty)';
+    return studentObj?.previous_course
+      ? `Graduated (${studentObj.previous_course})`
+      : '— (Alumni)';
   }
   return `Year ${yr || '1'}`;
 };
-
 const parseLegacyStudentName = (studentObj) => {
   if (studentObj.first_name || studentObj.last_name) {
     return {
