@@ -1,26 +1,41 @@
-import { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, updateDoc, doc, getDoc, onSnapshot, addDoc } from 'firebase/firestore';
-import { db, sendAutomatedClientEmail } from '../firebaseConfig';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { collection, query, where, updateDoc, doc, getDoc, onSnapshot, addDoc, deleteField } from 'firebase/firestore';
+import { db, auth, sendAutomatedClientEmail } from '../firebaseConfig';
 import { 
   Play, PauseCircle, XCircle, CheckCircle, Clock, BellRing, User, Volume2, 
-  PlusCircle, KeyRound, QrCode, RefreshCw, RotateCcw, ShieldCheck, Maximize2, X, ListFilter 
+  PlusCircle, KeyRound, QrCode, RefreshCw, RotateCcw, Maximize2, X, ListFilter, Lock 
 } from 'lucide-react';
 import { useUI } from './UIContext';
 import './StaffDashboard.css';
 
 const CLAIM_VALIDITY_DAYS = 7;
 
-const DEFAULT_GENERAL_TRANSACTIONS = [
-  "General Inquiry / Transaction",
-  "Walk-In Request",
-  "Walk-In Inquiry / Transaction"
+// Unified label for all general / walk-in inquiries so the checklist stays clean
+const GENERAL_INQUIRY_LABEL = "General / Walk-In Inquiry";
+const GENERAL_FALLBACK_PURPOSES = [
+  "general / walk-in inquiry",
+  "general inquiry / transaction",
+  "walk-in request",
+  "walk-in inquiry / transaction",
+  "general transaction"
 ];
+
+// Window lock expires automatically if a browser crashes and sends no heartbeat for 2 minutes
+const WINDOW_LOCK_TIMEOUT_MS = 2 * 60 * 1000;
 
 // Strips priority suffix tags like "[Senior Citizen (OSCA ID)]" when matching transaction purpose
 const normalizePurposeBase = (rawPurpose = '') => {
   return String(rawPurpose || '')
     .replace(/\s*\[.*?\]\s*$/, '')
     .trim();
+};
+
+const isGeneralOrWalkInPurpose = (rawPurpose = '', assignedOffice = '') => {
+  const base = normalizePurposeBase(rawPurpose).toLowerCase();
+  if (!base) return true;
+  if (GENERAL_FALLBACK_PURPOSES.includes(base)) return true;
+  if (assignedOffice && base === `${assignedOffice.toLowerCase()} visit`) return true;
+  return false;
 };
 
 export default function StaffDashboard({ assignedOffice = "Registrar" }) {
@@ -40,7 +55,7 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
   
   const [officeId, setOfficeId] = useState(null);
   const [officeData, setOfficeData] = useState(null);
-  const [selectedWindow, setSelectedWindow] = useState("Window 0");
+  const [selectedWindow, setSelectedWindow] = useState("Window 1");
   const [printTicketData, setPrintTicketData] = useState(null);
 
   // Per-Window Transaction Checklist Filter States
@@ -49,14 +64,41 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
   const [draftCheckedTransactions, setDraftCheckedTransactions] = useState([]);
   const [isSavingTxFilter, setIsSavingTxFilter] = useState(false);
 
+  // Unique Session ID per browser tab + Firebase Auth identity for Window Occupancy Locking
+  const tabSessionId = useMemo(() => {
+    let sid = sessionStorage.getItem('bcmatik_staff_tab_sid');
+    if (!sid) {
+      sid = `tab_${Math.random().toString(36).substring(2, 10)}_${Date.now()}`;
+      sessionStorage.setItem('bcmatik_staff_tab_sid', sid);
+    }
+    return sid;
+  }, []);
+
+  const currentOperatorId = `${auth.currentUser?.uid || 'staff'}_${tabSessionId}`;
+  const currentOperatorLabel = auth.currentUser?.email || 'Another Staff';
+  const hasAutoAssignedWindowRef = useRef(false);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 1. Real-time listener for Office Config (Windows, Major/Minor Status & Window Transaction Map)
+  // Helper to check if a window is currently locked by a DIFFERENT staff session
+  const getWindowLockInfo = (winName, dataObj = officeData, nowMs = Date.now()) => {
+    const locks = dataObj?.active_window_operators || {};
+    const entry = locks[winName];
+    if (!entry || !entry.operator_id) return null;
+    if (entry.operator_id === currentOperatorId) return null; // Locked by me
+    const lastBeat = entry.heartbeat_ms || 0;
+    if (nowMs - lastBeat > WINDOW_LOCK_TIMEOUT_MS) return null; // Expired stale lock
+    return entry;
+  };
+
+  // 1. Real-time listener for Office Config (Windows, Major/Minor Status, Window Filters & Window Locks)
   useEffect(() => {
     if (!assignedOffice) return;
+    hasAutoAssignedWindowRef.current = false;
+
     const q = query(collection(db, "offices"), where("office_name", "==", assignedOffice));
     const unsubOffice = onSnapshot(q, (snap) => {
       if (!snap.empty) {
@@ -64,15 +106,80 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
         const data = docSnap.data();
         setOfficeId(docSnap.id);
         setOfficeData(data);
-        const winList = Array.isArray(data.windows) && data.windows.length > 0 ? data.windows : ["Window 0"];
-        setSelectedWindow((prev) => (prev && winList.includes(prev) ? prev : winList[0]));
+
+        const winList = Array.isArray(data.windows) && data.windows.length > 0 ? data.windows : ["Window 1"];
+        const nowMs = Date.now();
+
+        setSelectedWindow((prev) => {
+          const currentValid = prev && winList.includes(prev) ? prev : winList[0];
+          const conflict = getWindowLockInfo(currentValid, data, nowMs);
+
+          // If current window is occupied by another staff member, auto-switch to the first free window!
+          if (conflict) {
+            const firstFree = winList.find((w) => !getWindowLockInfo(w, data, nowMs));
+            if (firstFree && firstFree !== currentValid) {
+              setTimeout(() => {
+                showToast(
+                  `${currentValid} is currently in use by ${conflict.operator_label}. Auto-switched your terminal to ${firstFree}.`,
+                  "warning",
+                  "Window Occupied"
+                );
+              }, 100);
+              return firstFree;
+            }
+          } else if (!hasAutoAssignedWindowRef.current) {
+            hasAutoAssignedWindowRef.current = true;
+            const firstFreeOnLoad = winList.find((w) => !getWindowLockInfo(w, data, nowMs)) || winList[0];
+            return firstFreeOnLoad;
+          }
+          return currentValid;
+        });
       } else {
-        setOfficeData({ office_name: assignedOffice, is_major: true, windows: ["Window 0"] });
-        setSelectedWindow("Window 0");
+        setOfficeData({ office_name: assignedOffice, is_major: true, windows: ["Window 1"] });
+        setSelectedWindow("Window 1");
       }
     });
     return () => unsubOffice();
   }, [assignedOffice]);
+
+  // 1A. Claim & Heartbeat the Selected Window Lock in Firestore (Releases on window switch or tab close)
+  useEffect(() => {
+    if (!officeId || !selectedWindow || !statusOnline) return;
+
+    // Don't overwrite if another active staff member already holds this window lock
+    const existingLock = getWindowLockInfo(selectedWindow, officeData, Date.now());
+    if (existingLock) return;
+
+    const claimWindow = async () => {
+      try {
+        await updateDoc(doc(db, "offices", officeId), {
+          [`active_window_operators.${selectedWindow}`]: {
+            operator_id: currentOperatorId,
+            operator_label: currentOperatorLabel,
+            claimed_at: new Date(),
+            heartbeat_ms: Date.now()
+          }
+        });
+      } catch (_e) { }
+    };
+
+    claimWindow();
+    const beatTimer = setInterval(claimWindow, 45000);
+
+    const releaseWindow = () => {
+      updateDoc(doc(db, "offices", officeId), {
+        [`active_window_operators.${selectedWindow}`]: deleteField()
+      }).catch(() => {});
+    };
+
+    window.addEventListener('beforeunload', releaseWindow);
+
+    return () => {
+      clearInterval(beatTimer);
+      window.removeEventListener('beforeunload', releaseWindow);
+      releaseWindow();
+    };
+  }, [officeId, selectedWindow, statusOnline, currentOperatorId, currentOperatorLabel]);
 
   // 1B. Real-time listener for Workflows linked to this Office (Builds the Checklist Options)
   useEffect(() => {
@@ -173,16 +280,15 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     return () => unsubStudent();
   }, [currentTicket?.id, currentTicket?.student_id]);
 
-  // Combine Workflows + Default General Inquiries + Any Custom Purposes in the Live Queue
+  // Clean Checklist Options: 100% Firestore Workflows + 1 Unified "General / Walk-In Inquiry" + Any Custom Live Purposes
   const allAvailableTransactions = useMemo(() => {
-    const livePurposes = activeQueue
+    const customLivePurposes = activeQueue
       .map((t) => normalizePurposeBase(t.transaction_purpose))
-      .filter(Boolean);
+      .filter((p) => p && !isGeneralOrWalkInPurpose(p, assignedOffice));
     const combined = [
       ...officeWorkflowTitles,
-      ...DEFAULT_GENERAL_TRANSACTIONS,
-      `${assignedOffice} Visit`,
-      ...livePurposes
+      GENERAL_INQUIRY_LABEL,
+      ...customLivePurposes
     ];
     return Array.from(new Set(combined));
   }, [officeWorkflowTitles, activeQueue, assignedOffice]);
@@ -200,11 +306,16 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
   const filteredActiveQueue = useMemo(() => {
     if (!isCustomFilterActive) return activeQueue;
     const allowedLower = savedWindowFilterList.map((item) => item.toLowerCase().trim());
+    const generalAllowed = allowedLower.includes(GENERAL_INQUIRY_LABEL.toLowerCase());
+
     return activeQueue.filter((ticket) => {
+      if (generalAllowed && isGeneralOrWalkInPurpose(ticket.transaction_purpose, assignedOffice)) {
+        return true;
+      }
       const basePurpose = normalizePurposeBase(ticket.transaction_purpose).toLowerCase();
       return allowedLower.includes(basePurpose);
     });
-  }, [activeQueue, isCustomFilterActive, savedWindowFilterList]);
+  }, [activeQueue, isCustomFilterActive, savedWindowFilterList, assignedOffice]);
 
   const hiddenOtherTxCount = activeQueue.length - filteredActiveQueue.length;
 
@@ -264,6 +375,30 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     setIsSavingTxFilter(false);
   };
 
+  // Force Takeover a Window if a Staff Member Left Their Browser Open at Another Desk
+  const handleForceTakeoverWindow = (targetWin, lockInfo) => {
+    confirmAction({
+      title: `Take Over ${targetWin}?`,
+      message: `${targetWin} is currently marked as occupied by ${lockInfo.operator_label}. Do you want to take over ${targetWin} on this computer?`,
+      confirmText: `Take Over ${targetWin}`,
+      variant: 'warning',
+      onConfirm: async () => {
+        if (officeId) {
+          await updateDoc(doc(db, "offices", officeId), {
+            [`active_window_operators.${targetWin}`]: {
+              operator_id: currentOperatorId,
+              operator_label: currentOperatorLabel,
+              claimed_at: new Date(),
+              heartbeat_ms: Date.now()
+            }
+          });
+        }
+        setSelectedWindow(targetWin);
+        showToast(`You have taken over ${targetWin}.`, "success", "Window Claimed");
+      }
+    });
+  };
+
   // 4. Staff Keyboard Shortcuts (Alt+N = Call Next, Alt+R = Recall)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -320,10 +455,15 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
       showToast("Your window is currently Paused. Check 'Window Open' first.", "warning", "Window Paused");
       return;
     }
+    const activeConflict = getWindowLockInfo(selectedWindow, officeData, Date.now());
+    if (activeConflict) {
+      handleForceTakeoverWindow(selectedWindow, activeConflict);
+      return;
+    }
     if (filteredActiveQueue.length === 0) {
       if (hiddenOtherTxCount > 0) {
         showToast(
-          `No waiting tickets match ${selectedWindow}'s filter, but ${hiddenOtherTxCount} client(s) are waiting for other transactions. Click 'Window Transactions' to assist them.`,
+          `No waiting tickets match ${selectedWindow}'s filter, but ${hiddenOtherTxCount} client(s) are waiting for other transactions. Click 'Serving Transaction(s)' to assist them.`,
           "warning",
           "Filtered Queue Empty"
         );
@@ -363,7 +503,7 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     }
   };
 
-const updateCurrentTicketStatus = async (newStatus) => {
+  const updateCurrentTicketStatus = async (newStatus) => {
     if (!currentTicket) return;
 
     if (newStatus === "missed") {
@@ -421,7 +561,6 @@ const updateCurrentTicketStatus = async (newStatus) => {
           is_read: false
         });
 
-        // Dispatch Email if Student Enabled Email Alerts or if Guest Provided Email
         let recipientEmail = currentTicket.guest_email || "";
         let recipientName = currentTicket.student_name || "Client";
 
@@ -538,7 +677,6 @@ const updateCurrentTicketStatus = async (newStatus) => {
         is_read: false
       });
 
-      // Send Automated Email if Registered Student Enabled Email Alerts
       if (ticket.student_id && !ticket.student_id.startsWith("GUEST") && ticket.student_id !== "WALK-IN") {
         const sSnap = await getDoc(doc(db, "students", ticket.student_id));
         if (sSnap.exists()) {
@@ -594,11 +732,63 @@ const updateCurrentTicketStatus = async (newStatus) => {
 
   const availableWindows = Array.isArray(officeData?.windows) && officeData.windows.length > 0
     ? officeData.windows
-    : ["Window 0"];
+    : ["Window 1"];
 
   const activePhotoUrl = currentTicket?.student_photo_url || currentStudentProfile?.photo_url || null;
   const activeClientEmail = currentStudentProfile?.email || currentTicket?.guest_email || null;
   const emailAlertsOn = currentStudentProfile?.email_notifications_enabled ?? false;
+
+// Check if any OTHER window is currently occupied by another staff member
+  const occupiedOtherWindows = availableWindows
+    .map((w) => ({ windowName: w, lock: getWindowLockInfo(w, officeData, currentTime.getTime()) }))
+    .filter((item) => item.lock !== null);
+
+  // Count how many windows are actively OPEN right now (including this terminal if Window Open is ON)
+  const openWindowsCount = useMemo(() => {
+    const locks = officeData?.active_window_operators || {};
+    const nowMs = currentTime.getTime();
+    const activeSet = new Set();
+
+    availableWindows.forEach((w) => {
+      const entry = locks[w];
+      if (entry && entry.operator_id && nowMs - (entry.heartbeat_ms || 0) <= WINDOW_LOCK_TIMEOUT_MS) {
+        activeSet.add(w);
+      }
+    });
+
+    if (statusOnline && selectedWindow && availableWindows.includes(selectedWindow)) {
+      activeSet.add(selectedWindow);
+    } else if (!statusOnline && selectedWindow) {
+      const myEntry = locks[selectedWindow];
+      if (myEntry?.operator_id === currentOperatorId) {
+        activeSet.delete(selectedWindow);
+      }
+    }
+    return activeSet.size;
+  }, [officeData, availableWindows, currentTime, statusOnline, selectedWindow, currentOperatorId]);
+
+  const pillToggleStyle = (isChecked, activeColor = 'var(--quest-primary)') => ({
+    width: '38px',
+    height: '21px',
+    borderRadius: '999px',
+    backgroundColor: isChecked ? activeColor : '#CBD5E1',
+    position: 'relative',
+    transition: 'background-color 0.2s ease',
+    display: 'inline-block',
+    flexShrink: 0
+  });
+
+  const pillKnobStyle = (isChecked) => ({
+    width: '17px',
+    height: '17px',
+    borderRadius: '50%',
+    backgroundColor: '#FFFFFF',
+    position: 'absolute',
+    top: '2px',
+    left: isChecked ? '19px' : '2px',
+    transition: 'left 0.2s ease',
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+  });
 
   return (
     <div>
@@ -609,6 +799,17 @@ const updateCurrentTicketStatus = async (newStatus) => {
             <span className="quest-badge badge-primary">
               {officeData?.is_major !== false ? 'MAJOR OFFICE' : 'MINOR OFFICE'} TERMINAL
             </span>
+
+            {/* Live Open Windows / Total Windows Counter Badge */}
+            {officeData?.is_major !== false && (
+              <span
+                className={`quest-badge ${openWindowsCount > 0 ? 'badge-success' : 'badge-warning'}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                title="Number of actively open counter windows vs. total configured windows"
+              >
+                ● {openWindowsCount} of {availableWindows.length} Window{availableWindows.length === 1 ? '' : 's'} Open
+              </span>
+            )}
 
             {officeData && officeData.is_major === false ? (
               <span className="quest-badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
@@ -643,16 +844,32 @@ const updateCurrentTicketStatus = async (newStatus) => {
               className="quest-input staff-window-select" 
               value={selectedWindow}
               onChange={(e) => {
-                setSelectedWindow(e.target.value);
-                showToast(`Switched active counter to ${e.target.value}.`, "success", "Window Changed");
+                const targetWin = e.target.value;
+                const conflict = getWindowLockInfo(targetWin, officeData, Date.now());
+                if (conflict) {
+                  handleForceTakeoverWindow(targetWin, conflict);
+                  return;
+                }
+                if (officeId && selectedWindow) {
+                  updateDoc(doc(db, "offices", officeId), {
+                    [`active_window_operators.${selectedWindow}`]: deleteField()
+                  }).catch(() => {});
+                }
+                setSelectedWindow(targetWin);
+                showToast(`Switched active counter to ${targetWin}.`, "success", "Window Changed");
               }}
             >
-              {availableWindows.map(w => (
-                <option key={w} value={w}>{w}</option>
-              ))}
+              {availableWindows.map((w) => {
+                const lockInfo = getWindowLockInfo(w, officeData, currentTime.getTime());
+                return (
+                  <option key={w} value={w}>
+                    {lockInfo ? `${w} (Occupied by ${lockInfo.operator_label})` : w}
+                  </option>
+                );
+              })}
             </select>
 
-            {/* NEW: Per-Window Transaction Checklist Filter Button */}
+            {/* Per-Window Transaction Checklist Filter Button */}
             <button
               type="button"
               onClick={openTransactionChecklistModal}
@@ -672,34 +889,93 @@ const updateCurrentTicketStatus = async (newStatus) => {
                 ? `Serving ${savedWindowFilterList.length} Transaction(s)`
                 : 'Serving All Transactions'}
             </button>
+
+            {occupiedOtherWindows.length > 0 && (
+              <span
+                className="quest-badge badge-warning"
+                style={{ fontSize: '10.5px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                title="Other active counter windows in this office"
+              >
+                <Lock size={11} />
+                {occupiedOtherWindows.map((o) => `${o.windowName}: In Use`).join(' • ')}
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="staff-header-actions">
+        <div className="staff-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <button onClick={handleGenerateWalkIn} className="quest-btn quest-btn-outline" style={{ borderColor: 'var(--quest-primary)', color: 'var(--quest-primary)' }}>
             <PlusCircle size={16} /> Walk-In / Print Ticket
           </button>
-          <label className="staff-toggle-label">
-            <input 
-              type="checkbox" 
-              checked={statusOnline} 
+
+          {/* Toggle Switch 1: Window Open */}
+          <label
+            className="staff-toggle-label"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              userSelect: 'none',
+              padding: '6px 10px',
+              borderRadius: '10px',
+              backgroundColor: statusOnline ? '#F0FDF4' : '#F8FAFC',
+              border: `1px solid ${statusOnline ? '#BBF7D0' : '#E2E8F0'}`
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={statusOnline}
               onChange={() => {
-                setStatusOnline(!statusOnline);
-                showToast(`Counter status set to ${!statusOnline ? 'Open' : 'Paused'}.`, !statusOnline ? "success" : "warning");
-              }} 
-              style={{ accentColor: 'var(--quest-primary)' }} 
-            /> Window Open
+                const nextState = !statusOnline;
+                setStatusOnline(nextState);
+                if (!nextState && officeId && selectedWindow) {
+                  updateDoc(doc(db, "offices", officeId), {
+                    [`active_window_operators.${selectedWindow}`]: deleteField()
+                  }).catch(() => {});
+                }
+                showToast(`Counter status set to ${nextState ? 'Open' : 'Paused'}.`, nextState ? "success" : "warning");
+              }}
+              style={{ display: 'none' }}
+            />
+            <span style={pillToggleStyle(statusOnline, '#16A34A')}>
+              <span style={pillKnobStyle(statusOnline)} />
+            </span>
+            <span style={{ fontSize: '12.5px', fontWeight: 800, color: statusOnline ? '#15803D' : '#64748B' }}>
+              Window Open
+            </span>
           </label>
-          <label className="staff-toggle-label">
-            <input 
-              type="checkbox" 
-              checked={priorityEnabled} 
+
+          {/* Toggle Switch 2: Priority Lane */}
+          <label
+            className="staff-toggle-label"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              userSelect: 'none',
+              padding: '6px 10px',
+              borderRadius: '10px',
+              backgroundColor: priorityEnabled ? '#FFFBEB' : '#F8FAFC',
+              border: `1px solid ${priorityEnabled ? '#FDE68A' : '#E2E8F0'}`
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={priorityEnabled}
               onChange={() => {
                 setPriorityEnabled(!priorityEnabled);
                 showToast(`Priority Lane sorting ${!priorityEnabled ? 'enabled' : 'disabled'}.`, "success");
-              }} 
-              style={{ accentColor: 'var(--quest-primary)' }} 
-            /> Priority Lane
+              }}
+              style={{ display: 'none' }}
+            />
+            <span style={pillToggleStyle(priorityEnabled, 'var(--quest-primary)')}>
+              <span style={pillKnobStyle(priorityEnabled)} />
+            </span>
+            <span style={{ fontSize: '12.5px', fontWeight: 800, color: priorityEnabled ? '#B45309' : '#64748B' }}>
+              Priority Lane
+            </span>
           </label>
         </div>
       </div>
@@ -1085,7 +1361,7 @@ const updateCurrentTicketStatus = async (newStatus) => {
         </div>
       </div>
 
-      {/* NEW: PER-WINDOW TRANSACTION CHECKLIST FILTER MODAL */}
+      {/* PER-WINDOW TRANSACTION CHECKLIST FILTER MODAL */}
       {isTxFilterModalOpen && (
         <div className="quest-modal-backdrop" onClick={() => setIsTxFilterModalOpen(false)}>
           <div
@@ -1141,9 +1417,12 @@ const updateCurrentTicketStatus = async (newStatus) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
               {allAvailableTransactions.map((txTitle) => {
                 const isChecked = draftCheckedTransactions.includes(txTitle);
-                const waitingCountForTx = activeQueue.filter(
-                  (t) => normalizePurposeBase(t.transaction_purpose).toLowerCase() === txTitle.toLowerCase()
-                ).length;
+                const waitingCountForTx = activeQueue.filter((t) => {
+                  if (txTitle === GENERAL_INQUIRY_LABEL) {
+                    return isGeneralOrWalkInPurpose(t.transaction_purpose, assignedOffice);
+                  }
+                  return normalizePurposeBase(t.transaction_purpose).toLowerCase() === txTitle.toLowerCase();
+                }).length;
 
                 return (
                   <label

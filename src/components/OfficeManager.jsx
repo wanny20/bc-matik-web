@@ -7,15 +7,16 @@ import { SkeletonTableRows } from './Skeleton';
 import TablePagination from './TablePagination';
 
 const PRESET_WINDOWS = [
-  "Window 0",
-  "Window 1",
-  "Window 2",
-  "Window 3",
-  "Window 4",
-  "Releasing Counter",
-  "Verification Desk",
-  "Counter A",
-  "Counter B"
+  'Window 1',
+  'Window 2',
+  'Window 3',
+  'Window 4',
+  'Window 5',
+  'Releasing Counter',
+  'Assessment Counter',
+  'Verification Desk',
+  'Counter A',
+  'Counter B'
 ];
 
 export default function OfficeManager({ setAdminSection, role = 'admin', assignedOffice = null }) {
@@ -40,7 +41,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
 
   // Window Manager Modal State
   const [managingOffice, setManagingOffice] = useState(null);
-  const [selectedPresetWindow, setSelectedPresetWindow] = useState('Window 0');
+  const [selectedPresetWindow, setSelectedPresetWindow] = useState('Window 1');
   const [customWindowInput, setCustomWindowInput] = useState('');
   const [windowError, setWindowError] = useState('');
 
@@ -160,7 +161,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         office_name: cleanName,
         is_major: newOfficeType === 'major',
         is_online: true,
-        windows: ["Window 0"],
+        windows: newOfficeType === 'major' ? ["Window 1"] : [],
         clearance_code: initialCode,
         arrival_qr_token: initialQrToken,
         daily_limit: parsedLimit,
@@ -900,35 +901,98 @@ const toggleStatus = async (office) => {
                           <Users size={12} /> {dailyLim > 0 ? `Max ${dailyLim} / Day` : 'No Limit'}
                         </span>
                       </td>
+                  {/* COLUMN 5: WINDOW SETUP (Direct Clearance for Minor, Exact Count for Major) */}
                       <td>
-                        <button 
-                          onClick={() => { setManagingOffice(office); setWindowError(''); }} 
-                          className="quest-btn quest-btn-outline" 
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          <MonitorUp size={14} /> {office.windows?.length || 1} Windows
-                        </button>
-                      </td>
-                      <td>
-                          {!office.is_major ? (
-                          <button
-                            onClick={() => setCodeOffice(office)}
-                            className="quest-badge badge-info"
-                            style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            title="Click to view & refresh 4-digit clearance code"
+                        {!office.is_major ? (
+                          <span
+                            className="quest-badge"
+                            style={{
+                              backgroundColor: '#F8FAFC',
+                              color: '#64748B',
+                              border: '1px solid #E2E8F0',
+                              fontSize: '11px',
+                              fontWeight: 700
+                            }}
                           >
-                            <KeyRound size={13} /> Code: <strong>{office.clearance_code || '4892'}</strong>
+                            Direct Clearance (No Windows)
+                          </span>
+                        ) : (
+(() => {
+                            const winList = Array.isArray(office.windows) ? office.windows : [];
+                            const winCount = winList.length;
+                            const locks = office.active_window_operators || {};
+                            const nowMs = Date.now();
+                            const openCount = winList.filter((w) => {
+                              const entry = locks[w];
+                              return entry && entry.operator_id && nowMs - (entry.heartbeat_ms || 0) <= 2 * 60 * 1000;
+                            }).length;
+
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManagingOffice(office);
+                                  setSelectedPresetWindow('Window 1');
+                                  setCustomWindowInput('');
+                                  setWindowError('');
+                                }}
+                                className="quest-btn quest-btn-outline"
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: '12px',
+                                  borderColor: winCount === 0 ? '#FCA5A5' : openCount > 0 ? '#BBF7D0' : '#E2E8F0',
+                                  color: winCount === 0 ? '#DC2626' : openCount > 0 ? '#15803D' : '#0F172A',
+                                  backgroundColor: winCount === 0 ? '#FEF2F2' : openCount > 0 ? '#F0FDF4' : '#FFFFFF'
+                                }}
+                              >
+                                <MonitorUp size={14} />
+                                {winCount === 1 ? '1 Window' : `${winCount} Windows`} ({openCount} Open)
+                              </button>
+                            );
+                          })()
+                        )}
+                      </td>
+
+                      {/* COLUMN 6: UNIQUE CODE (MINOR) / ARRIVAL QR TOKEN (MAJOR) */}
+                      <td>
+                        {office.is_major ? (
+                          <button
+                            type="button"
+                            onClick={() => setQrModalOffice(office)}
+                            className="quest-badge badge-primary"
+                            style={{
+                              border: '1px solid #F5D0CE',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 10px'
+                            }}
+                            title="Click to view, refresh, or print Hallway Arrival QR Poster"
+                          >
+                            <QrCode size={12} />
+                            <span>{getOfficeArrivalToken(office)}</span>
+                            <Printer size={12} />
                           </button>
                         ) : (
                           <button
-                            onClick={() => setQrModalOffice(office)}
-                            className="quest-badge badge-primary"
-                            style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            title="Click to view, refresh, or print Hallway Arrival QR Token"
+                            type="button"
+                            onClick={() => setCodeOffice(office)}
+                            className="quest-badge badge-info"
+                            style={{
+                              border: '1px solid #BAE6FD',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 10px'
+                            }}
+                            title="Click to view or refresh 4-Digit Minor Office Clearance Code"
                           >
-                            <QrCode size={13} /> {getOfficeArrivalToken(office)} <Printer size={12} />
+                            <KeyRound size={12} />
+                            <span>CODE: <strong>{office.clearance_code || '4892'}</strong></span>
                           </button>
-                        )}    
+                        )}
                       </td>
                       <td>
                         <div className="quest-action-group">
@@ -1118,6 +1182,52 @@ const toggleStatus = async (office) => {
           </div>
         </div>
       )}
+{/* 2A. MINOR OFFICE 4-DIGIT CLEARANCE CODE MODAL */}
+      {codeOffice && (
+        <div className="quest-modal-backdrop" onClick={() => setCodeOffice(null)}>
+          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div className="quest-modal-icon-badge primary">
+                  <KeyRound size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: '#0F172A' }}>{codeOffice.office_name} Clearance Code</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>Minor Office 4-Digit Verification Code</p>
+                </div>
+              </div>
+              <button onClick={() => setCodeOffice(null)} className="quest-toast-close">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '22px 16px', backgroundColor: '#F8FAFC', borderRadius: '14px', border: '1.5px dashed #CBD5E1', marginBottom: '18px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Active 4-Digit Clearance Code
+              </div>
+              <div className="outfit-number" style={{ fontSize: '42px', fontWeight: 900, color: '#0284C7', letterSpacing: '0.12em', margin: '6px 0' }}>
+                {codeOffice.clearance_code || '4892'}
+              </div>
+              <p style={{ fontSize: '12px', color: '#64748B', margin: 0 }}>
+                Students visiting {codeOffice.office_name} enter this 4-digit code in the BCMatik mobile app to verify their clearance.
+              </p>
+            </div>
+
+            <div className="quest-modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                onClick={() => handleRefreshClearanceCode(codeOffice)}
+                className="quest-btn quest-btn-outline"
+              >
+                <RefreshCw size={15} /> Generate New Code
+              </button>
+              <button type="button" onClick={() => setCodeOffice(null)} className="quest-btn quest-btn-primary">
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
 {/* 2B. MAJOR OFFICE ARRIVAL QR TOKEN REFRESH & PRINT MODAL */}
       {qrModalOffice && (
@@ -1261,8 +1371,16 @@ const toggleStatus = async (office) => {
                 </div>
               )}
               <div className="quest-detail-row">
-                <span className="quest-detail-label">Service Windows ({viewingOffice.windows?.length || 1})</span>
-                <span className="quest-detail-value">{(viewingOffice.windows || ['Window 0']).join(', ')}</span>
+                <span className="quest-detail-label">
+                  Service Windows ({Array.isArray(viewingOffice.windows) ? viewingOffice.windows.length : 0})
+                </span>
+                <span className="quest-detail-value">
+                  {!viewingOffice.is_major
+                    ? 'Direct Office Clearance (No Windows)'
+                    : Array.isArray(viewingOffice.windows) && viewingOffice.windows.length > 0
+                      ? viewingOffice.windows.join(', ')
+                      : 'No windows configured'}
+                </span>
               </div>
             </div>
 
