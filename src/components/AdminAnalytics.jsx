@@ -7,6 +7,25 @@ import { SkeletonBlock } from './Skeleton';
 import { useUI } from './UIContext';
 import './AdminAnalytics.css';
 
+// Strips priority suffix tags like "[Senior Citizen (OSCA ID)]" so transaction metrics group cleanly
+const normalizeTransactionName = (rawPurpose = '') => {
+  return String(rawPurpose || 'General Inquiry')
+    .replace(/\s*\[.*?\]\s*$/, '')
+    .trim() || 'General Inquiry';
+};
+
+// Reads Firestore timestamp whether stored nested (t.timestamps.x) or dotted (t["timestamps.x"])
+const getTsMillis = (t, key) => {
+  if (!t) return null;
+  const raw = t.timestamps?.[key] ?? t[`timestamps.${key}`];
+  if (!raw) return null;
+  if (typeof raw.toMillis === 'function') return raw.toMillis();
+  if (typeof raw.toDate === 'function') return raw.toDate().getTime();
+  if (typeof raw.seconds === 'number') return raw.seconds * 1000;
+  const parsed = new Date(raw).getTime();
+  return isNaN(parsed) ? null : parsed;
+};
+
 export default function AdminAnalytics() {
   const { showToast } = useUI();
   const [tickets, setTickets] = useState([]);
@@ -37,11 +56,25 @@ export default function AdminAnalytics() {
 
   // Helper to extract JS Date from Firestore Timestamp
   const getTicketDate = (t) => {
-    const raw = t.timestamps?.booked_at || t.timestamps?.activated_at || t.created_at;
-    if (!raw) return null;
-    if (typeof raw.toDate === 'function') return raw.toDate();
-    const parsed = new Date(raw);
-    return isNaN(parsed.getTime()) ? null : parsed;
+    const ms =
+      getTsMillis(t, 'booked_at') ||
+      getTsMillis(t, 'activated_at') ||
+      (t.created_at?.toMillis?.() ?? new Date(t.created_at || 0).getTime());
+    if (!ms || isNaN(ms) || ms <= 0) return null;
+    return new Date(ms);
+  };
+
+  // Helper to count actively open windows for an office (falls back to configured windows count)
+  const getEffectiveOpenWindows = (officeObj) => {
+    if (!officeObj) return 1;
+    const wins = Array.isArray(officeObj.windows) && officeObj.windows.length > 0 ? officeObj.windows : ['Window 1'];
+    const locks = officeObj.active_window_operators || {};
+    const nowMs = Date.now();
+    const openCount = wins.filter((w) => {
+      const entry = locks[w];
+      return entry && entry.operator_id && nowMs - (entry.heartbeat_ms || 0) <= 2 * 60 * 1000;
+    }).length;
+    return openCount > 0 ? openCount : Math.max(1, wins.length);
   };
 
   const now = new Date();
@@ -62,7 +95,7 @@ export default function AdminAnalytics() {
     return true;
   });
 
-  // 2. Compute Core KPIs
+  // 2. Compute Core KPIs + Per-Transaction Average Processing Time (APT) & EWT
   const totalCount = validTickets.length;
   const completedCount = validTickets.filter(t => t.status === 'completed').length;
   const activeWaitingCount = validTickets.filter(t => ['active', 'called', 'resolved_requirements', 'booked'].includes(t.status)).length;
@@ -72,7 +105,10 @@ export default function AdminAnalytics() {
 
   let totalWaitMins = 0;
   let validWaitCount = 0;
+  let totalProcessingMins = 0;
+  let validProcessingCount = 0;
   const officeStatsMap = {};
+  const transactionStatsMap = {};
 
   // Seed officeStatsMap with registered offices so all campus offices appear cleanly
   offices.forEach(off => {
@@ -83,24 +119,64 @@ export default function AdminAnalytics() {
         completed: 0,
         active: 0,
         waitTime: 0,
-        waitCount: 0
+        waitCount: 0,
+        procTime: 0,
+        procCount: 0
       };
     }
   });
 
   validTickets.forEach(ticket => {
     const offName = ticket.target_office_id.trim();
+    const txName = normalizeTransactionName(ticket.transaction_purpose);
+    const txKey = `${offName}___${txName.toUpperCase()}`;
+
     if (!officeStatsMap[offName]) {
-      officeStatsMap[offName] = { name: offName, total: 0, completed: 0, active: 0, waitTime: 0, waitCount: 0 };
+      officeStatsMap[offName] = {
+        name: offName,
+        total: 0,
+        completed: 0,
+        active: 0,
+        waitTime: 0,
+        waitCount: 0,
+        procTime: 0,
+        procCount: 0
+      };
+    }
+
+    if (!transactionStatsMap[txKey]) {
+      transactionStatsMap[txKey] = {
+        key: txKey,
+        office: offName,
+        transaction: txName,
+        total: 0,
+        completed: 0,
+        activeWaiting: 0,
+        procTimeSum: 0,
+        procCount: 0
+      };
     }
 
     officeStatsMap[offName].total += 1;
-    if (ticket.status === 'completed') officeStatsMap[offName].completed += 1;
-    if (['active', 'called', 'resolved_requirements'].includes(ticket.status)) officeStatsMap[offName].active += 1;
+    transactionStatsMap[txKey].total += 1;
 
-    if (ticket.timestamps?.activated_at && ticket.timestamps?.called_at) {
-      const actMs = ticket.timestamps.activated_at?.toMillis?.() || new Date(ticket.timestamps.activated_at).getTime();
-      const callMs = ticket.timestamps.called_at?.toMillis?.() || new Date(ticket.timestamps.called_at).getTime();
+    if (ticket.status === 'completed') {
+      officeStatsMap[offName].completed += 1;
+      transactionStatsMap[txKey].completed += 1;
+    }
+    if (['active', 'called', 'resolved_requirements'].includes(ticket.status)) {
+      officeStatsMap[offName].active += 1;
+    }
+    if (['active', 'resolved_requirements'].includes(ticket.status)) {
+      transactionStatsMap[txKey].activeWaiting += 1;
+    }
+
+    const actMs = getTsMillis(ticket, 'activated_at') || getTsMillis(ticket, 'booked_at');
+    const callMs = getTsMillis(ticket, 'called_at');
+    const compMs = getTsMillis(ticket, 'completed_at');
+
+    // Hallway Wait Time (activated_at -> called_at)
+    if (actMs && callMs && callMs >= actMs) {
       const waitMins = (callMs - actMs) / 1000 / 60;
       if (waitMins >= 0 && waitMins < 360) {
         officeStatsMap[offName].waitTime += waitMins;
@@ -109,9 +185,61 @@ export default function AdminAnalytics() {
         validWaitCount += 1;
       }
     }
+
+    // Counter Processing Time APT (called_at -> completed_at)
+    if (ticket.status === 'completed' && compMs) {
+      const startMs = callMs || actMs;
+      if (startMs && compMs > startMs) {
+        const rawProcMins = (compMs - startMs) / 1000 / 60;
+        if (rawProcMins > 0 && rawProcMins <= 180) {
+          // Clamps fast demo test clicks (<30s) to a minimum 0.5m sample so live averages always register
+          const effectiveProcMins = Math.max(0.5, rawProcMins);
+          officeStatsMap[offName].procTime += effectiveProcMins;
+          officeStatsMap[offName].procCount += 1;
+          transactionStatsMap[txKey].procTimeSum += effectiveProcMins;
+          transactionStatsMap[txKey].procCount += 1;
+          totalProcessingMins += effectiveProcMins;
+          validProcessingCount += 1;
+        }
+      }
+    }
   });
 
   const avgWaitTime = validWaitCount > 0 ? Math.round(totalWaitMins / validWaitCount) : 0;
+  const campusAvgProcessingTime = validProcessingCount > 0
+    ? Number((totalProcessingMins / validProcessingCount).toFixed(1))
+    : 4.0;
+
+  // Build Per-Transaction APT & EWT Table Rows
+  const transactionMetricsList = Object.values(transactionStatsMap)
+    .map(item => {
+      const matchedOffice = offices.find(o => o.office_name === item.office);
+      const openWins = getEffectiveOpenWindows(matchedOffice);
+      const officeStat = officeStatsMap[item.office];
+      const officeFallbackApt = officeStat && officeStat.procCount > 0
+        ? officeStat.procTime / officeStat.procCount
+        : 4.0;
+
+      // Average Processing Time (APT) for this specific transaction
+      const aptMins = item.procCount > 0
+        ? item.procTimeSum / item.procCount
+        : officeFallbackApt;
+
+      // If 0 people are waiting in line, EWT for the next client is 0 mins (Immediate)!
+      // Otherwise EWT = ceil((activeWaiting * aptMins) / openWins)
+      const ewtMins = item.activeWaiting === 0
+        ? 0
+        : Math.max(1, Math.ceil((item.activeWaiting * aptMins) / openWins));
+
+      return {
+        ...item,
+        openWindows: openWins,
+        aptDisplay: Number(aptMins.toFixed(1)),
+        ewtDisplay: ewtMins,
+        hasHistoricalSample: item.procCount > 0
+      };
+    })
+    .sort((a, b) => b.total - a.total);
 
   const chartData = Object.values(officeStatsMap)
     .filter(stat => stat.total > 0 || offices.some(o => o.office_name === stat.name))
@@ -156,7 +284,7 @@ export default function AdminAnalytics() {
             <span className="quest-badge badge-success" style={{ fontSize: '10.5px' }}>● LIVE TELEMETRY</span>
           </div>
           <p>
-            Real-time queue telemetry, office workload distribution, and service bottleneck analytics across Bicol College.
+            Real-time queue telemetry, per-transaction EWT algorithm metrics, and service bottleneck analytics across Bicol College.
           </p>
         </div>
 
@@ -187,7 +315,7 @@ export default function AdminAnalytics() {
         </div>
       </div>
 
-      {/* 4-Column Typography-First Executive KPI Row (No Cluttered Icon Boxes) */}
+      {/* 4-Column Typography-First Executive KPI Row */}
       <div className="analytics-metrics-grid">
         <MetricCard
           accentColor="#9E0B03"
@@ -207,9 +335,9 @@ export default function AdminAnalytics() {
         />
         <MetricCard
           accentColor="#D97706"
-          title="Campus Avg Wait Time"
-          value={`${avgWaitTime} mins`}
-          subLabel={avgWaitTime <= 10 ? 'Within optimal SLA (<10m)' : 'Elevated hallway wait time'}
+          title="Avg Service & Wait Time"
+          value={`${campusAvgProcessingTime}m / tx`}
+          subLabel={`Hallway Avg Wait: ${avgWaitTime} mins`}
           badgeText={avgWaitTime <= 10 ? 'OPTIMAL' : 'HIGH LOAD'}
           badgeClass={avgWaitTime <= 10 ? 'badge-success' : 'badge-warning'}
         />
@@ -228,13 +356,24 @@ export default function AdminAnalytics() {
         <div className="quest-card analytics-live-strip-card">
           <div className="analytics-strip-header">
             <span className="analytics-strip-title">LIVE CAMPUS TERMINALS ({offices.length})</span>
-            <span className="analytics-strip-hint">Real-time hallway queue & counter status</span>
+            <span className="analytics-strip-hint">Real-time hallway queue, open windows & live EWT</span>
           </div>
           <div className="analytics-office-strip-grid">
             {offices.map(off => {
               const offTickets = tickets.filter(t => t.target_office_id === off.office_name);
               const nowServing = offTickets.find(t => t.status === 'called');
-              const waitingCount = offTickets.filter(t => ['active', 'resolved_requirements'].includes(t.status)).length;
+              const waitingTickets = offTickets.filter(t => ['active', 'resolved_requirements'].includes(t.status));
+              const waitingCount = waitingTickets.length;
+              const openWins = getEffectiveOpenWindows(off);
+
+              // Sum per-transaction APT for all waiting tickets in this office
+              const totalWorkloadMins = waitingTickets.reduce((acc, t) => {
+                const txName = normalizeTransactionName(t.transaction_purpose).toUpperCase();
+                const txStat = transactionStatsMap[`${off.office_name}___${txName}`];
+                const apt = txStat && txStat.procCount > 0 ? txStat.procTimeSum / txStat.procCount : 4.0;
+                return acc + apt;
+              }, 0);
+              const liveOfficeEwt = waitingCount === 0 ? 0 : Math.max(1, Math.ceil(totalWorkloadMins / openWins));
 
               return (
                 <div key={off.id} className="analytics-office-mini-card">
@@ -253,7 +392,7 @@ export default function AdminAnalytics() {
                       )}
                     </span>
                     <span style={{ fontWeight: 700, color: waitingCount > 0 ? '#B45309' : '#64748B' }}>
-                      {waitingCount} waiting
+                      {waitingCount} waiting {waitingCount > 0 ? `(~${liveOfficeEwt}m EWT)` : ''}
                     </span>
                   </div>
                 </div>
@@ -347,6 +486,92 @@ export default function AdminAnalytics() {
         </div>
       </div>
 
+      {/* NEW RUBRIC SECTION: Per-Transaction Average Processing Time (APT) & EWT Algorithm Telemetry */}
+      <div className="quest-card" style={{ marginBottom: '20px' }}>
+        <div className="analytics-panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+          <div>
+            <h3 className="analytics-panel-title" style={{ margin: 0 }}>
+              Per-Transaction Processing Time (APT) & Estimated Waiting Time (EWT) Algorithm
+            </h3>
+            <p className="analytics-panel-subtitle" style={{ margin: '4px 0 0' }}>
+              Formula: <code>EWT = ceil( Σ APT(transaction_i) / Active_Windows )</code> where <code>APT</code> is computed from historical <code>completed_at - called_at</code> durations.
+            </p>
+          </div>
+          <span className="quest-badge badge-primary" style={{ fontSize: '11px' }}>
+            DYNAMIC EWT ENGINE
+          </span>
+        </div>
+
+        <div className="quest-table-container">
+          <table className="quest-table">
+            <thead>
+              <tr>
+                <th>Transaction Type / Purpose</th>
+                <th>Target Office</th>
+                <th>Total / Completed</th>
+                <th>Avg Processing Time (APT)</th>
+                <th>Active Waiting</th>
+                <th>Open Windows</th>
+                <th>Calculated EWT (Next Client)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactionMetricsList.length === 0 ? (
+                <tr>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '28px', color: '#94A3B8' }}>
+                    No transaction telemetry recorded for this period yet.
+                  </td>
+                </tr>
+              ) : (
+                transactionMetricsList.slice(0, 8).map((row) => (
+                  <tr key={row.key}>
+                    <td style={{ fontWeight: 800, color: '#0F172A' }}>{row.transaction}</td>
+                    <td>
+                      <span className="quest-badge badge-info">{row.office}</span>
+                    </td>
+                    <td style={{ fontWeight: 600, color: '#475569' }}>
+                      {row.total} total ({row.completed} served)
+                    </td>
+                    <td>
+                      <span className="quest-badge badge-success" style={{ fontWeight: 800 }}>
+                        ~{row.aptDisplay} mins / tx
+                      </span>
+                      {!row.hasHistoricalSample && (
+                        <span style={{ fontSize: '10.5px', color: '#94A3B8', marginLeft: '6px' }}>
+                          (baseline)
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ fontWeight: 700, color: row.activeWaiting > 0 ? '#D97706' : '#64748B' }}>
+                      {row.activeWaiting} in line
+                    </td>
+                    <td style={{ fontWeight: 700, color: '#0F172A' }}>
+                      {row.openWindows} window(s)
+                    </td>
+                    <td>
+                      <span
+                        className={`quest-badge ${
+                          row.ewtDisplay === 0
+                            ? 'badge-success'
+                            : row.ewtDisplay > 15
+                              ? 'badge-danger'
+                              : 'badge-primary'
+                        }`}
+                        style={{ fontWeight: 800 }}
+                      >
+                        {row.ewtDisplay === 0
+                          ? '0 mins (Immediate)'
+                          : `~${row.ewtDisplay} min${row.ewtDisplay === 1 ? '' : 's'}`}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Bottom Row: Client Program Breakdown + Live Activity Stream */}
       <div className="analytics-bottom-grid">
         {/* Left: Client & Program Breakdown */}
@@ -429,7 +654,7 @@ export default function AdminAnalytics() {
   );
 }
 
-/* Clean Typography-First KPI Card (No Cluttered Icon Box) */
+/* Clean Typography-First KPI Card */
 function MetricCard({ accentColor, title, value, subLabel, badgeText, badgeClass }) {
   return (
     <div className="quest-card analytics-metric-card" style={{ borderTop: `3.5px solid ${accentColor}` }}>
