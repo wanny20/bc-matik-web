@@ -3,7 +3,7 @@ import { collection, query, where, updateDoc, doc, getDoc, onSnapshot, addDoc } 
 import { db, sendAutomatedClientEmail } from '../firebaseConfig';
 import { 
   Play, PauseCircle, XCircle, CheckCircle, Clock, BellRing, User, Volume2, 
-  PlusCircle, KeyRound, RefreshCw, RotateCcw, ShieldCheck, Mail, Maximize2, X, Route 
+  PlusCircle, KeyRound, QrCode, RefreshCw, RotateCcw, ShieldCheck, Mail, Maximize2, X, Route 
 } from 'lucide-react';
 import { useUI } from './UIContext';
 import './StaffDashboard.css';
@@ -164,6 +164,28 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     }
   };
 
+  const getActiveArrivalQrToken = () => {
+    if (officeData?.arrival_qr_token) return officeData.arrival_qr_token;
+    const prefix = (assignedOffice || '').replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+    return `BC-ARRIVE-${prefix}`;
+  };
+
+  const handleRefreshOfficeQrToken = async () => {
+    if (!officeId) return;
+    const prefix = (assignedOffice || '').replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+    const randSuffix = String(Math.floor(1000 + Math.random() * 9000));
+    const newQrToken = `BC-ARRIVE-${prefix}-${randSuffix}`;
+    try {
+      await updateDoc(doc(db, "offices", officeId), {
+        arrival_qr_token: newQrToken,
+        qr_updated_at: new Date()
+      });
+      showToast(`New Arrival QR Token for ${assignedOffice}: [ ${newQrToken} ]`, "success", "QR Token Refreshed");
+    } catch (e) {
+      showToast("Failed to refresh Arrival QR Token.", "error");
+    }
+  };
+
   const handleCallNext = async () => {
     if (!statusOnline) {
       showToast("Your window is currently Paused. Check 'Window Open' first.", "warning", "Window Paused");
@@ -262,6 +284,32 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     } catch (e) {
       showToast("Failed to resume ticket.", "error");
     }
+  };
+
+  const handleUpgradeTicketToPriority = (ticket) => {
+    if (!ticket || ticket.is_priority) return;
+    const oldQ = ticket.queue_number || '';
+    const stripped = oldQ.replace(/^W-/, '').replace(/-/g, '');
+    const newPriorityQ = oldQ.startsWith('P-') ? oldQ : `P-${stripped}`;
+
+    confirmAction({
+      title: `Upgrade ${oldQ} to Priority Lane?`,
+      message: `Confirm that you have verified the PWD, Senior Citizen, or Pregnant ID for ${ticket.student_name || 'this client'}? This will upgrade Ticket ${oldQ} to ${newPriorityQ} and move them to the Priority Lane.`,
+      confirmText: `Upgrade to ${newPriorityQ}`,
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, "tickets", ticket.id), {
+            is_priority: true,
+            queue_number: newPriorityQ,
+            verified_by_staff: true
+          });
+          showToast(`Upgraded Ticket ${oldQ} ➔ ${newPriorityQ} (Priority Lane).`, "success", "Priority Verified");
+        } catch (e) {
+          showToast("Failed to upgrade ticket to priority.", "error");
+        }
+      }
+    });
   };
 
   const handleRecallStudent = async () => {
@@ -375,14 +423,25 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
               {officeData?.is_major !== false ? 'MAJOR OFFICE' : 'MINOR OFFICE'} TERMINAL
             </span>
 
-            {/* STRICTLY SHOW 4-DIGIT CLEARANCE CODE ONLY ON MINOR OFFICES */}
-            {officeData && officeData.is_major === false && (
+          {/* MAJOR OFFICE: SHOW DYNAMIC ARRIVAL QR TOKEN + REFRESH | MINOR OFFICE: SHOW 4-DIGIT CODE + REFRESH */}
+            {officeData && officeData.is_major === false ? (
               <span className="quest-badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                 <KeyRound size={12} /> 4-Digit Clearance Code: <strong>{officeData?.clearance_code || '4892'}</strong>
                 <button
                   onClick={handleRefreshOfficeCode}
                   style={{ background: 'none', border: 'none', color: '#0369A1', cursor: 'pointer', padding: '0 2px', display: 'inline-flex' }}
                   title="Refresh 4-Digit Office Clearance Code"
+                >
+                  <RefreshCw size={12} />
+                </button>
+              </span>
+            ) : (
+              <span className="quest-badge badge-info" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <QrCode size={12} /> Arrival QR Token: <strong>{getActiveArrivalQrToken()}</strong>
+                <button
+                  onClick={handleRefreshOfficeQrToken}
+                  style={{ background: 'none', border: 'none', color: '#0369A1', cursor: 'pointer', padding: '0 2px', display: 'inline-flex' }}
+                  title="Generate New Hallway Arrival QR Token"
                 >
                   <RefreshCw size={12} />
                 </button>
@@ -462,7 +521,7 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
                   No active tickets waiting in hallway.
                 </div>
               ) : (
-                activeQueue.map((ticket, index) => (
+activeQueue.map((ticket, index) => (
                   <div key={ticket.id} className={`staff-queue-item ${index === 0 ? 'next-up' : ''}`}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       {ticket.student_photo_url ? (
@@ -491,13 +550,34 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                           <span className="outfit-number staff-queue-number">{ticket.queue_number}</span>
-                          {ticket.is_priority && <span className="quest-badge badge-warning">★ PRIORITY</span>}
+                          {ticket.is_priority && <span className="quest-badge badge-warning">PRIORITY</span>}
                           {ticket.status === 'resolved_requirements' && <span className="quest-badge badge-info">RESOLVED</span>}
                         </div>
                         <div className="staff-queue-purpose">{ticket.student_name || 'Guest'} • {ticket.transaction_purpose}</div>
                       </div>
                     </div>
-                    {index === 0 && <span className="quest-badge badge-primary">NEXT</span>}
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {!ticket.is_priority && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpgradeTicketToPriority(ticket)}
+                          className="quest-btn quest-btn-outline"
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            borderColor: '#FDE68A',
+                            backgroundColor: '#FFFBEB',
+                            color: '#B45309'
+                          }}
+                          title="Verify PWD / Senior / Pregnant ID & Upgrade to Priority Lane"
+                        >
+                          Priority
+                        </button>
+                      )}
+                      {index === 0 && <span className="quest-badge badge-primary">NEXT</span>}
+                    </div>
                   </div>
                 ))
               )
@@ -564,7 +644,7 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
               </div>
               {currentTicket?.is_priority && (
                 <span className="quest-badge badge-warning" style={{ marginTop: '8px' }}>
-                  ★ VERIFIED PRIORITY LANE CLIENT
+                  VERIFIED PRIORITY LANE CLIENT
                 </span>
               )}
             </div>

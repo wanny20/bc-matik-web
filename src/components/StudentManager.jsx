@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { 
-  Plus, Search, Eye, Edit3, X, Users, Lock, 
+  Plus, Search, Eye, Edit3, X, Users, Lock, Mail, KeyRound, Star,
   Download, ChevronDown, RotateCcw, FileText, FileSpreadsheet, Printer, Calendar, ArrowUpDown 
 } from 'lucide-react';
 import { useUI } from './UIContext';
@@ -32,13 +32,20 @@ const normalizeRosterCourse = (studentObj) => {
   return rawCourse || 'BSCS';
 };
 
+// Checks if a record is priority eligible (True if explicitly flagged OR if course is FACULTY)
+const isStudentPriority = (studentObj) => {
+  const course = normalizeRosterCourse(studentObj);
+  if (course === 'FACULTY') return true;
+  return Boolean(studentObj?.is_priority_eligible);
+};
+
 // Ensures Alumni / External records never display "Year 1"
 const formatStudentYearDisplay = (studentObj) => {
   const course = normalizeRosterCourse(studentObj);
   const div = (studentObj?.division || '').toUpperCase().trim();
   const yr = String(studentObj?.year || '').toUpperCase().trim();
 
-  if (div === 'EXTERNAL' || course === 'ALUMNI' || yr === 'GRADUATED' || yr === 'N/A') {
+  if (div === 'EXTERNAL' || course === 'ALUMNI' || course === 'FACULTY' || yr === 'GRADUATED' || yr === 'N/A') {
     return course === 'FACULTY' ? '— (Faculty)' : '— (Alumni)';
   }
   return `Year ${yr || '1'}`;
@@ -116,7 +123,8 @@ export default function StudentManager({ setAdminSection }) {
     confirmPassword: '',
     division: 'CCS', 
     course: 'BSCS', 
-    year: '1' 
+    year: '1',
+    is_priority_eligible: false
   });
   const [showStudentPass, setShowStudentPass] = useState(false);
   const [showStudentConfirmPass, setShowStudentConfirmPass] = useState(false);
@@ -130,10 +138,15 @@ export default function StudentManager({ setAdminSection }) {
     first_name: '',
     middle_name: '',
     last_name: '',
+    email: '',
+    email_verified: false,
+    new_password: '',
     division: 'CCS',
     course: 'BSCS',
-    year: '1'
+    year: '1',
+    is_priority_eligible: false
   });
+  const [showEditPass, setShowEditPass] = useState(false);
   const [editErrors, setEditErrors] = useState({});
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -165,10 +178,12 @@ export default function StudentManager({ setAdminSection }) {
     const snap = await getDocs(collection(db, 'students'));
     setStudents(snap.docs.map(d => {
       const data = d.data();
+      const normCourse = normalizeRosterCourse(data);
       return {
         id: d.id,
         ...data,
-        course: normalizeRosterCourse(data),
+        course: normCourse,
+        is_priority_eligible: normCourse === 'FACULTY' ? true : Boolean(data.is_priority_eligible),
         name: (data.name || '').toUpperCase()
       };
     }));
@@ -178,6 +193,34 @@ export default function StudentManager({ setAdminSection }) {
   useEffect(() => {
     fetchStudents();
   }, []);
+
+  // 1-Click Table Button to Toggle Priority Status for Any Registered Account
+  const handleTogglePriorityAccount = async (student) => {
+    const currentlyPriority = isStudentPriority(student);
+    const nextPriority = !currentlyPriority;
+
+    if (student.course === 'FACULTY' && !nextPriority) {
+      showToast('Faculty accounts automatically receive Priority Lane access.', 'info', 'Faculty Priority');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'students', student.id), {
+        is_priority_eligible: nextPriority,
+        updated_at: new Date()
+      });
+      showToast(
+        nextPriority
+          ? `${student.name} (${student.student_id}) is now a Verified Priority Account (P-).`
+          : `${student.name} (${student.student_id}) set back to Regular Lane.`,
+        nextPriority ? 'success' : 'warning',
+        nextPriority ? 'Priority Enabled' : 'Regular Lane'
+      );
+      fetchStudents();
+    } catch (e) {
+      showToast('Failed to update priority status.', 'error');
+    }
+  };
 
   const handleClearFilters = () => {
     setSearchTerm('');
@@ -197,7 +240,14 @@ export default function StudentManager({ setAdminSection }) {
   const handleDivisionChange = (newDiv) => {
     const defaultProg = ROSTER_PROGRAMS[newDiv]?.[0]?.code || '';
     const defaultYear = newDiv === 'EXTERNAL' ? 'GRADUATED' : '1';
-    setManualData({ ...manualData, division: newDiv, course: defaultProg, year: defaultYear });
+    const autoPriority = defaultProg === 'FACULTY' ? true : manualData.is_priority_eligible;
+    setManualData({
+      ...manualData,
+      division: newDiv,
+      course: defaultProg,
+      year: defaultYear,
+      is_priority_eligible: autoPriority
+    });
     if (errors.division || errors.course) {
       setErrors({ ...errors, division: '', course: '' });
     }
@@ -206,7 +256,14 @@ export default function StudentManager({ setAdminSection }) {
   const handleEditDivisionChange = (newDiv) => {
     const defaultProg = ROSTER_PROGRAMS[newDiv]?.[0]?.code || '';
     const defaultYear = newDiv === 'EXTERNAL' ? 'GRADUATED' : (editData.year === 'GRADUATED' ? '1' : editData.year);
-    setEditData({ ...editData, division: newDiv, course: defaultProg, year: defaultYear });
+    const autoPriority = defaultProg === 'FACULTY' ? true : editData.is_priority_eligible;
+    setEditData({
+      ...editData,
+      division: newDiv,
+      course: defaultProg,
+      year: defaultYear,
+      is_priority_eligible: autoPriority
+    });
   };
 
   const handleManualSubmit = async (e) => {
@@ -235,9 +292,11 @@ export default function StudentManager({ setAdminSection }) {
     if (!manualData.division) newErrors.division = 'Department / Group is required';
     if (!manualData.course) newErrors.course = 'Program / Course is required';
 
-    const finalYear = manualData.division === 'EXTERNAL' || manualData.course === 'ALUMNI' || manualData.course === 'FACULTY'
+    const cleanCourse = manualData.course.toUpperCase().trim();
+    const finalYear = manualData.division === 'EXTERNAL' || cleanCourse === 'ALUMNI' || cleanCourse === 'FACULTY'
       ? 'GRADUATED'
       : String(manualData.year || '1').trim();
+    const finalPriority = cleanCourse === 'FACULTY' ? true : Boolean(manualData.is_priority_eligible);
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -267,13 +326,14 @@ export default function StudentManager({ setAdminSection }) {
         password: cleanPass,
         initial_password: cleanPass,
         division: manualData.division,
-        course: manualData.course.toUpperCase().trim(),
+        course: cleanCourse,
         year: finalYear,
+        is_priority_eligible: finalPriority,
         registered_at: new Date(),
         status: 'active'
       });
       
-      showToast(`${combinedName} (${manualData.course}) added to the roster.`, 'success', 'Client Registered');
+      showToast(`${combinedName} (${cleanCourse}) added to the roster.`, 'success', 'Client Registered');
       setManualData({
         first_name: '',
         middle_name: '',
@@ -283,7 +343,8 @@ export default function StudentManager({ setAdminSection }) {
         confirmPassword: '',
         division: 'CCS',
         course: 'BSCS',
-        year: '1'
+        year: '1',
+        is_priority_eligible: false
       });
       setShowStudentPass(false);
       setShowStudentConfirmPass(false);
@@ -307,43 +368,108 @@ export default function StudentManager({ setAdminSection }) {
       first_name: parsed.first,
       middle_name: parsed.middle,
       last_name: parsed.last,
+      email: (student.email || '').trim().toLowerCase(),
+      email_verified: Boolean(student.email_verified),
+      new_password: '',
       division: cleanDiv,
       course: cleanCourse,
-      year: isExt ? 'GRADUATED' : String(student.year || '1')
+      year: isExt ? 'GRADUATED' : String(student.year || '1'),
+      is_priority_eligible: isStudentPriority(student)
     });
+    setShowEditPass(false);
     setEditErrors({});
+  };
+
+  const handleResetStudentPasswordToId = () => {
+    if (!editingStudent) return;
+    const defaultPass = String(editingStudent.student_id || editingStudent.id).trim();
+    confirmAction({
+      title: 'Reset Password to Student ID?',
+      message: `Reset ${editingStudent.name}'s password back to their default Student ID (${defaultPass})? They will be able to sign in immediately using ${defaultPass}.`,
+      confirmText: 'Yes, Reset Password',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'students', editingStudent.id), {
+            password: defaultPass,
+            initial_password: defaultPass,
+            password_updated_at: new Date(),
+            updated_at: new Date()
+          });
+          showToast(
+            `Password for ${editingStudent.name} has been reset to ${defaultPass}.`,
+            'success',
+            'Password Reset'
+          );
+          fetchStudents();
+        } catch (err) {
+          showToast('Failed to reset student password.', 'error');
+        }
+      }
+    });
   };
 
   const handleUpdateStudent = async (e) => {
     e.preventDefault();
     if (!editingStudent) return;
     const newErr = {};
+    const cleanMail = (editData.email || '').trim().toLowerCase();
+    const cleanNewPass = (editData.new_password || '').trim();
+
     if (!editData.first_name.trim()) newErr.first_name = 'First Name is required';
     if (!editData.last_name.trim()) newErr.last_name = 'Last Name is required';
+    if (cleanMail && !/^[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(cleanMail)) {
+      newErr.email = 'Please enter a valid email address';
+    }
+    if (cleanNewPass && cleanNewPass.length < 6) {
+      newErr.new_password = 'New password must be at least 6 characters';
+    }
 
     if (Object.keys(newErr).length > 0) {
       setEditErrors(newErr);
       return;
     }
 
+    const cleanCourse = editData.course.toUpperCase().trim();
     const updatedFullName = formatFullName(editData.first_name, editData.middle_name, editData.last_name);
-    const finalYear = editData.division === 'EXTERNAL' || editData.course === 'ALUMNI' || editData.course === 'FACULTY'
+    const finalYear = editData.division === 'EXTERNAL' || cleanCourse === 'ALUMNI' || cleanCourse === 'FACULTY'
       ? 'GRADUATED'
       : String(editData.year || '1').trim();
+    const finalPriority = cleanCourse === 'FACULTY' ? true : Boolean(editData.is_priority_eligible);
 
     setIsUpdating(true);
     try {
-      await updateDoc(doc(db, 'students', editingStudent.id), {
+      const payload = {
         first_name: editData.first_name.trim(),
         middle_name: editData.middle_name.trim(),
         last_name: editData.last_name.trim(),
         name: updatedFullName,
+        email: cleanMail,
+        email_verified: cleanMail ? Boolean(editData.email_verified) : false,
+        email_notifications_enabled: cleanMail && editData.email_verified
+          ? Boolean(editingStudent.email_notifications_enabled ?? true)
+          : false,
         division: editData.division,
-        course: editData.course.toUpperCase().trim(),
+        course: cleanCourse,
         year: finalYear,
+        is_priority_eligible: finalPriority,
         updated_at: new Date()
-      });
-      showToast(`Updated record for ${updatedFullName}.`, 'success', 'Student Updated');
+      };
+
+      if (cleanNewPass) {
+        payload.password = cleanNewPass;
+        payload.initial_password = cleanNewPass;
+        payload.password_updated_at = new Date();
+      }
+
+      await updateDoc(doc(db, 'students', editingStudent.id), payload);
+      showToast(
+        cleanNewPass
+          ? `Updated profile and set new password for ${updatedFullName}.`
+          : `Updated record for ${updatedFullName}.`,
+        'success',
+        'Student Updated'
+      );
       setEditingStudent(null);
       fetchStudents();
     } catch (e) {
@@ -379,9 +505,9 @@ export default function StudentManager({ setAdminSection }) {
       showToast('No student records available to export.', 'warning');
       return;
     }
-    const headers = ['Registered Date,Student ID,Full Name,Department,Program,Year'];
+    const headers = ['Registered Date,Student ID,Full Name,Department,Program,Year,Queue Lane'];
     const rows = filteredStudents.map(s => 
-      `"${formatStudentDate(s)}","${s.student_id || ''}","${s.name || ''}","${s.division || 'COLLEGE'}","${s.course || ''}","${formatStudentYearDisplay(s)}"`
+      `"${formatStudentDate(s)}","${s.student_id || ''}","${s.name || ''}","${s.division || 'COLLEGE'}","${s.course || ''}","${formatStudentYearDisplay(s)}","${isStudentPriority(s) ? 'PRIORITY' : 'REGULAR'}"`
     );
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
     const link = document.createElement('a');
@@ -408,6 +534,7 @@ export default function StudentManager({ setAdminSection }) {
         <td>${s.division || 'COLLEGE'}</td>
         <td>${s.course || ''}</td>
         <td>${formatStudentYearDisplay(s)}</td>
+        <td>${isStudentPriority(s) ? 'PRIORITY' : 'REGULAR'}</td>
       </tr>
     `).join('');
 
@@ -425,6 +552,7 @@ export default function StudentManager({ setAdminSection }) {
               <th>Department</th>
               <th>Program</th>
               <th>Year / Status</th>
+              <th>Queue Lane</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -466,6 +594,7 @@ export default function StudentManager({ setAdminSection }) {
         <td>${s.division || 'COLLEGE'}</td>
         <td>${s.course || ''}</td>
         <td>${formatStudentYearDisplay(s)}</td>
+        <td>${isStudentPriority(s) ? 'PRIORITY' : 'REGULAR'}</td>
       </tr>
     `).join('');
 
@@ -502,6 +631,7 @@ export default function StudentManager({ setAdminSection }) {
                 <th>Department</th>
                 <th>Program</th>
                 <th>Year / Status</th>
+                <th>Lane</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -545,7 +675,8 @@ export default function StudentManager({ setAdminSection }) {
           confirmPassword: '',
           division: 'CCS',
           course: 'BSCS',
-          year: '1'
+          year: '1',
+          is_priority_eligible: false
         });
         setShowStudentPass(false);
         setShowStudentConfirmPass(false);
@@ -562,6 +693,9 @@ export default function StudentManager({ setAdminSection }) {
       editData.first_name.trim() !== orig.first ||
       editData.middle_name.trim() !== orig.middle ||
       editData.last_name.trim() !== orig.last ||
+      editData.email.trim() !== (editingStudent.email || '').trim().toLowerCase() ||
+      editData.new_password.trim() !== '' ||
+      Boolean(editData.is_priority_eligible) !== isStudentPriority(editingStudent) ||
       editData.division !== (editingStudent.division || 'CCS') ||
       editData.course !== normalizeRosterCourse(editingStudent) ||
       String(editData.year) !== String(editingStudent.year || '1');
@@ -588,7 +722,7 @@ export default function StudentManager({ setAdminSection }) {
         <div>
           <h1>Student & Alumni Roster Management</h1>
           <p>
-            Maintain the official database of Undergraduate Departments, School of Law, Graduate School, and Alumni clients.
+            Maintain the official database of Undergraduate Departments, School of Law, Graduate School, Faculty, and Alumni clients.
           </p>
         </div>
         
@@ -776,65 +910,93 @@ export default function StudentManager({ setAdminSection }) {
                 <th>Department / Group</th>
                 <th>Program / Course</th>
                 <th>Year</th>
+                <th>Queue Lane (Click to Toggle)</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <SkeletonTableRows rows={5} cols={7} />
+                <SkeletonTableRows rows={5} cols={8} />
               ) : paginatedStudents.length === 0 ? (
-                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '40px', color: 'var(--quest-text-secondary)' }}>No records found.</td></tr>
+                <tr><td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--quest-text-secondary)' }}>No records found.</td></tr>
               ) : (
-                paginatedStudents.map(student => (
-                  <tr key={student.id}>
-                    <td style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
-                      {formatStudentDate(student)}
-                    </td>
-                    <td style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--quest-primary)' }}>{student.student_id}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        {student.photo_url ? (
-                          <img
-                            src={student.photo_url}
-                            alt={student.name}
-                            style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--quest-primary)', flexShrink: 0 }}
-                          />
-                        ) : null}
-                        <span style={{ fontWeight: 700, color: 'var(--quest-text-primary)' }}>{student.name}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`quest-badge ${
-                        student.division === 'LAW' ? 'badge-primary' :
-                        student.division === 'GRADUATE' ? 'badge-warning' : 'badge-info'
-                      }`}>
-                        {student.division || 'COLLEGE'}
-                      </span>
-                    </td>
-                    <td style={{ fontWeight: 700 }}>{student.course}</td>
-                    <td style={{ color: student.division === 'EXTERNAL' || student.course === 'ALUMNI' ? '#64748B' : 'inherit', fontWeight: 600 }}>
-                      {formatStudentYearDisplay(student)}
-                    </td>
-                    <td>
-                      <div className="quest-action-group">
+                paginatedStudents.map(student => {
+                  const priorityActive = isStudentPriority(student);
+                  return (
+                    <tr key={student.id}>
+                      <td style={{ fontSize: '12.5px', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
+                        {formatStudentDate(student)}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--quest-primary)' }}>{student.student_id}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          {student.photo_url ? (
+                            <img
+                              src={student.photo_url}
+                              alt={student.name}
+                              style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--quest-primary)', flexShrink: 0 }}
+                            />
+                          ) : null}
+                          <span style={{ fontWeight: 700, color: 'var(--quest-text-primary)' }}>{student.name}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`quest-badge ${
+                          student.division === 'LAW' ? 'badge-primary' :
+                          student.division === 'GRADUATE' ? 'badge-warning' : 'badge-info'
+                        }`}>
+                          {student.division || 'COLLEGE'}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 700 }}>{student.course}</td>
+                      <td style={{ color: student.division === 'EXTERNAL' || student.course === 'ALUMNI' || student.course === 'FACULTY' ? '#64748B' : 'inherit', fontWeight: 600 }}>
+                        {formatStudentYearDisplay(student)}
+                      </td>
+                      <td>
                         <button
-                          onClick={() => setViewingStudent(student)}
-                          className="quest-icon-btn view"
-                          title="View Profile"
+                          type="button"
+                          onClick={() => handleTogglePriorityAccount(student)}
+                          className={`quest-badge ${priorityActive ? 'badge-warning' : 'badge-info'}`}
+                          style={{
+                            border: priorityActive ? '1px solid #FDE68A' : '1px solid #E2E8F0',
+                            backgroundColor: priorityActive ? '#FEF3C7' : '#F8FAFC',
+                            color: priorityActive ? '#B45309' : '#64748B',
+                            cursor: student.course === 'FACULTY' ? 'default' : 'pointer',
+                            padding: '5px 10px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontWeight: 800
+                          }}
+                          title={student.course === 'FACULTY' ? 'Faculty accounts automatically have Priority Lane access' : 'Click to toggle Priority Lane (PWD / Pregnant / Senior) status'}
                         >
-                          <Eye size={16} />
+                          <Star size={12} fill={priorityActive ? '#D97706' : 'none'} color={priorityActive ? '#D97706' : '#64748B'} />
+                          {priorityActive
+                            ? (student.course === 'FACULTY' ? 'PRIORITY (FACULTY)' : 'PRIORITY LANE')
+                            : 'REGULAR LANE'}
                         </button>
-                        <button
-                          onClick={() => openEditModal(student)}
-                          className="quest-icon-btn edit"
-                          title="Edit Profile"
-                        >
-                          <Edit3 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td>
+                        <div className="quest-action-group">
+                          <button
+                            onClick={() => setViewingStudent(student)}
+                            className="quest-icon-btn view"
+                            title="View Profile"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          <button
+                            onClick={() => openEditModal(student)}
+                            className="quest-icon-btn edit"
+                            title="Edit Profile"
+                          >
+                            <Edit3 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1026,7 +1188,14 @@ export default function StudentManager({ setAdminSection }) {
                   <select 
                     className="quest-input" 
                     value={manualData.course} 
-                    onChange={e => setManualData({...manualData, course: e.target.value})}
+                    onChange={e => {
+                      const nextCourse = e.target.value;
+                      setManualData({
+                        ...manualData,
+                        course: nextCourse,
+                        is_priority_eligible: nextCourse === 'FACULTY' ? true : manualData.is_priority_eligible
+                      });
+                    }}
                   >
                     {(ROSTER_PROGRAMS[manualData.division] || []).map(prog => (
                       <option key={prog.code} value={prog.code}>{prog.code} — {prog.name}</option>
@@ -1054,6 +1223,36 @@ export default function StudentManager({ setAdminSection }) {
                 )}
               </div>
 
+              {/* PRIORITY LANE ELIGIBILITY CHECKBOX IN REGISTER MODAL */}
+              <div style={{
+                padding: '12px 14px',
+                backgroundColor: manualData.course === 'FACULTY' || manualData.is_priority_eligible ? '#FFFBEB' : '#F8FAFC',
+                borderRadius: '12px',
+                border: `1px solid ${manualData.course === 'FACULTY' || manualData.is_priority_eligible ? '#FDE68A' : '#E2E8F0'}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#0F172A' }}>
+                    Priority Lane Account (Faculty / PWD / Pregnant / Senior)
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#64748B' }}>
+                    {manualData.course === 'FACULTY'
+                      ? 'Faculty members automatically receive Priority Lane (P-) tickets.'
+                      : 'Check this if you have verified the client’s PWD, Pregnant, or Senior ID.'}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  disabled={manualData.course === 'FACULTY'}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9E0B03' }}
+                  checked={manualData.course === 'FACULTY' || Boolean(manualData.is_priority_eligible)}
+                  onChange={(e) => setManualData({ ...manualData, is_priority_eligible: e.target.checked })}
+                />
+              </div>
+
               <div className="quest-modal-actions" style={{ marginTop: '10px' }}>
                 <button type="button" onClick={closeAddStudentModal} className="quest-btn quest-btn-outline">
                   Cancel
@@ -1067,7 +1266,7 @@ export default function StudentManager({ setAdminSection }) {
         </div>
       )}
 
-      {/* 2. VIEW STUDENT DETAILS MODAL (With Uploaded Client Picture & Email Status!) */}
+      {/* 2. VIEW STUDENT DETAILS MODAL (With Uploaded Client Picture & Priority Status!) */}
       {viewingStudent && (
         <div className="quest-modal-backdrop" onClick={() => setViewingStudent(null)}>
           <div className="quest-modal-card" onClick={(e) => e.stopPropagation()}>
@@ -1120,6 +1319,12 @@ export default function StudentManager({ setAdminSection }) {
                 <span className="quest-detail-value">{formatStudentYearDisplay(viewingStudent)}</span>
               </div>
               <div className="quest-detail-row">
+                <span className="quest-detail-label">Queue Lane Eligibility</span>
+                <span className={`quest-badge ${isStudentPriority(viewingStudent) ? 'badge-warning' : 'badge-info'}`}>
+                  {isStudentPriority(viewingStudent) ? 'PRIORITY LANE (P-)' : 'REGULAR LANE'}
+                </span>
+              </div>
+              <div className="quest-detail-row">
                 <span className="quest-detail-label">Email Notifications</span>
                 <span className="quest-detail-value">
                   {viewingStudent.email
@@ -1149,7 +1354,7 @@ export default function StudentManager({ setAdminSection }) {
       {/* 3. EDIT STUDENT MODAL */}
       {editingStudent && (
         <div className="quest-modal-backdrop" onClick={closeEditStudentModal}>
-          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0, fontSize: '20px', color: '#1E293B' }}>Edit Student Record</h3>
               <button onClick={closeEditStudentModal} className="quest-toast-close">
@@ -1230,7 +1435,18 @@ export default function StudentManager({ setAdminSection }) {
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)', marginBottom: '6px' }}>
                     Program / Course <span className="quest-req-star">*</span>
                   </label>
-                  <select className="quest-input" value={editData.course} onChange={(e) => setEditData({ ...editData, course: e.target.value })}>
+                  <select
+                    className="quest-input"
+                    value={editData.course}
+                    onChange={(e) => {
+                      const nextCourse = e.target.value;
+                      setEditData({
+                        ...editData,
+                        course: nextCourse,
+                        is_priority_eligible: nextCourse === 'FACULTY' ? true : editData.is_priority_eligible
+                      });
+                    }}
+                  >
                     {(ROSTER_PROGRAMS[editData.division] || []).map(prog => (
                       <option key={prog.code} value={prog.code}>{prog.code} — {prog.name}</option>
                     ))}
@@ -1251,6 +1467,126 @@ export default function StudentManager({ setAdminSection }) {
                     </select>
                   </div>
                 )}
+              </div>
+
+              {/* VERIFIED PRIORITY LANE ELIGIBILITY (FACULTY / PWD / PREGNANT / SENIOR) */}
+              <div style={{
+                padding: '12px 14px',
+                backgroundColor: editData.course === 'FACULTY' || editData.is_priority_eligible ? '#FFFBEB' : '#F8FAFC',
+                borderRadius: '12px',
+                border: `1px solid ${editData.course === 'FACULTY' || editData.is_priority_eligible ? '#FDE68A' : '#E2E8F0'}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <div>
+                  <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#0F172A' }}>
+                    Verified Priority Lane Account (Faculty / PWD / Pregnant / Senior)
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#64748B' }}>
+                    {editData.course === 'FACULTY'
+                      ? 'Faculty members automatically receive Priority Lane (P-) tickets.'
+                      : 'Automatically grants Priority Lane (P-) tickets on the mobile app.'}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  disabled={editData.course === 'FACULTY'}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#9E0B03' }}
+                  checked={editData.course === 'FACULTY' || Boolean(editData.is_priority_eligible)}
+                  onChange={(e) => setEditData({ ...editData, is_priority_eligible: e.target.checked })}
+                />
+              </div>
+
+              {/* LINKED EMAIL ADDRESS & VERIFICATION STATUS */}
+              <div style={{ paddingTop: '6px', borderTop: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--quest-text-secondary)' }}>
+                    Linked Email Address (For OTP & Queue Alerts)
+                  </label>
+                  {editData.email.trim() && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 700, color: '#15803D', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={editData.email_verified}
+                        onChange={(e) => setEditData({ ...editData, email_verified: e.target.checked })}
+                      />
+                      Mark Email as Verified
+                    </label>
+                  )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={16} color="var(--quest-text-muted)" style={{ position: 'absolute', left: '14px', top: '12px' }} />
+                  <input
+                    type="email"
+                    maxLength={80}
+                    className={`quest-input ${editErrors.email ? 'input-error' : ''}`}
+                    style={{ paddingLeft: '40px' }}
+                    placeholder="student@bc.edu.ph (Leave blank if none)"
+                    value={editData.email}
+                    onChange={(e) => {
+                      const clean = e.target.value.toLowerCase().replace(/[^a-z0-9@._-]/g, '').slice(0, 80);
+                      setEditData({ ...editData, email: clean, email_verified: clean ? true : false });
+                      if (editErrors.email) setEditErrors({ ...editErrors, email: '' });
+                    }}
+                  />
+                </div>
+                {editErrors.email && <span className="quest-error-text">{editErrors.email}</span>}
+              </div>
+
+              {/* ADMIN PASSWORD RESET SECTION (No Plain-Text Viewing!) */}
+              <div style={{
+                padding: '14px',
+                backgroundColor: '#F8FAFC',
+                borderRadius: '12px',
+                border: '1px solid #E2E8F0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <KeyRound size={15} color="var(--quest-primary)" /> Account Password Recovery
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748B' }}>
+                      Reset to Student ID ({editingStudent.student_id}) or assign a new temporary password.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetStudentPasswordToId}
+                    className="quest-btn quest-btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '11.5px', fontWeight: 800, backgroundColor: '#FFFFFF' }}
+                  >
+                    Reset to ID ({editingStudent.student_id})
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Lock size={15} color="var(--quest-text-muted)" style={{ position: 'absolute', left: '12px', top: '11px' }} />
+                  <input
+                    type={showEditPass ? 'text' : 'password'}
+                    maxLength={64}
+                    className={`quest-input ${editErrors.new_password ? 'input-error' : ''}`}
+                    style={{ paddingLeft: '36px', paddingRight: '68px', backgroundColor: '#FFFFFF', fontSize: '12.5px' }}
+                    placeholder="Or type a new password here (leave blank to keep current)"
+                    value={editData.new_password}
+                    onChange={(e) => {
+                      setEditData({ ...editData, new_password: e.target.value });
+                      if (editErrors.new_password) setEditErrors({ ...editErrors, new_password: '' });
+                    }}
+                  />
+                  <button
+                    type="button"
+                    style={showHideBtnStyle}
+                    onClick={() => setShowEditPass(!showEditPass)}
+                  >
+                    {showEditPass ? 'HIDE' : 'SHOW'}
+                  </button>
+                </div>
+                {editErrors.new_password && <span className="quest-error-text">{editErrors.new_password}</span>}
               </div>
 
               <div className="quest-modal-actions" style={{ marginTop: '8px' }}>

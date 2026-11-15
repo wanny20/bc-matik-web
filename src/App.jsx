@@ -540,7 +540,7 @@ const [broadcastModalData, setBroadcastModalData] = useState(null);
                                       {item.queue_number} • {item.target_office_id}
                                     </span>
                                     <span style={{ fontSize: '10px', fontWeight: 800, color: item.near_expiry ? '#DC2626' : isReady ? '#15803D' : '#B45309' }}>
-                                      {item.near_expiry ? '⚠️ NEAR EXPIRY' : isReady ? 'READY TO CLAIM' : 'NEEDS PROCESSING'}
+                                      {item.near_expiry ? 'NEAR EXPIRY' : isReady ? 'READY TO CLAIM' : 'NEEDS PROCESSING'}
                                     </span>
                                   </div>
                                   <div style={{ fontSize: '12px', fontWeight: 600, color: '#0F172A' }}>

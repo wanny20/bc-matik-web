@@ -47,6 +47,9 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
   // Minor Office Unique 4-Digit Code Modal State
   const [codeOffice, setCodeOffice] = useState(null);
 
+  // Major Office Refreshable Arrival QR Token Modal State
+  const [qrModalOffice, setQrModalOffice] = useState(null);
+
   // View & Edit Office Modal States
   const [viewingOffice, setViewingOffice] = useState(null);
   const [editingOffice, setEditingOffice] = useState(null);
@@ -148,7 +151,10 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
 
     const initialCode = String(Math.floor(1000 + Math.random() * 9000));
 
-    setIsSubmitting(true);
+    const prefix = cleanName.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+    const initialQrToken = `BC-ARRIVE-${prefix}-${initialCode}`;
+
+ setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'offices'), {
         office_name: cleanName,
@@ -156,6 +162,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         is_online: true,
         windows: ["Window 0"],
         clearance_code: initialCode,
+        arrival_qr_token: initialQrToken,
         daily_limit: parsedLimit,
         image_url: newOfficePhotoPreview || '',
         created_at: new Date()
@@ -177,7 +184,6 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
     }
     setIsSubmitting(false);
   };
-
   const handleRefreshClearanceCode = async (office) => {
     const newCode = String(Math.floor(1000 + Math.random() * 9000));
     try {
@@ -194,16 +200,44 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
       showToast('Failed to refresh office clearance code.', 'error');
     }
   };
-  const getOfficeArrivalToken = (officeName = '') => {
-    const prefix = officeName.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+const getOfficeArrivalToken = (officeObj) => {
+    if (!officeObj) return 'BC-ARRIVE-OFC';
+    if (typeof officeObj === 'object' && officeObj.arrival_qr_token) {
+      return officeObj.arrival_qr_token;
+    }
+    const rawName = typeof officeObj === 'string' ? officeObj : (officeObj.office_name || '');
+    const prefix = rawName.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
     return `BC-ARRIVE-${prefix}`;
   };
 
-  const handlePrintOfficeQR = (office) => {
-    const token = getOfficeArrivalToken(office.office_name);
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=10&data=${encodeURIComponent(token)}`;
+  const handleRefreshArrivalQrToken = async (office) => {
+    if (!office) return;
+    const prefix = (office.office_name || '').replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase() || 'OFC';
+    const randSuffix = String(Math.floor(1000 + Math.random() * 9000));
+    const newQrToken = `BC-ARRIVE-${prefix}-${randSuffix}`;
+    try {
+      await updateDoc(doc(db, 'offices', office.id), {
+        arrival_qr_token: newQrToken,
+        qr_updated_at: new Date()
+      });
+      showToast(`Refreshed Arrival QR Token for ${office.office_name} to [ ${newQrToken} ]. Print the new poster to update the hallway.`, 'success', 'QR Token Refreshed');
+      fetchOffices();
+      if (qrModalOffice && qrModalOffice.id === office.id) {
+        setQrModalOffice({ ...qrModalOffice, arrival_qr_token: newQrToken });
+      }
+      if (viewingOffice && viewingOffice.id === office.id) {
+        setViewingOffice({ ...viewingOffice, arrival_qr_token: newQrToken });
+      }
+    } catch (e) {
+      showToast('Failed to refresh Arrival QR Token.', 'error');
+    }
+  };
 
-    const printWin = window.open('', '_blank', 'width=900,height=1050');
+  const handlePrintOfficeQR = (office) => {
+    const token = getOfficeArrivalToken(office);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=520x520&margin=8&data=${encodeURIComponent(token)}`;
+
+    const printWin = window.open('', '_blank', 'width=860,height=960');
     if (!printWin) {
       showToast('Please allow popups in your browser to print the QR poster.', 'error', 'Popup Blocked');
       return;
@@ -217,148 +251,150 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
           <style>
             @page {
               size: A4 portrait;
-              margin: 12mm;
+              margin: 8mm;
             }
             * {
               box-sizing: border-box;
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }
-            body {
+            html, body {
               margin: 0;
               padding: 0;
+              width: 100%;
+              height: 100%;
               font-family: 'Segoe UI', Inter, Arial, sans-serif;
               background: #FFFFFF;
               color: #0F172A;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              min-height: 96vh;
+              overflow: hidden;
             }
             .poster-sheet {
               width: 100%;
-              max-width: 740px;
-              min-height: 94vh;
-              border: 4px solid #9E0B03;
-              border-radius: 28px;
-              padding: 36px 40px;
+              max-width: 700px;
+              max-height: 274mm;
+              margin: 0 auto;
+              border: 3.5px solid #9E0B03;
+              border-radius: 22px;
+              padding: 22px 30px;
               display: flex;
               flex-direction: column;
               justify-content: space-between;
               text-align: center;
+              page-break-inside: avoid;
+              break-inside: avoid;
             }
             .header-banner {
               background-color: #9E0B03;
               color: #FFFFFF;
-              padding: 22px 24px;
-              border-radius: 20px;
-              border-bottom: 5px solid #FACC15;
+              padding: 16px 20px;
+              border-radius: 16px;
+              border-bottom: 4px solid #FACC15;
             }
             .school-sub {
-              font-size: 13px;
+              font-size: 12px;
               font-weight: 800;
               letter-spacing: 0.14em;
               color: #FACC15;
               text-transform: uppercase;
-              margin-bottom: 6px;
+              margin-bottom: 4px;
             }
             .brand-title {
-              font-size: 28px;
+              font-size: 24px;
               font-weight: 900;
               margin: 0;
               letter-spacing: -0.02em;
             }
             .office-pill {
               display: inline-block;
-              margin-top: 18px;
-              padding: 6px 18px;
+              margin-top: 12px;
+              padding: 5px 16px;
               border-radius: 999px;
               background-color: #FCEAE9;
               color: #9E0B03;
-              font-size: 13px;
+              font-size: 12px;
               font-weight: 800;
               letter-spacing: 0.08em;
               text-transform: uppercase;
             }
             .office-name {
-              font-size: 52px;
+              font-size: 40px;
               font-weight: 900;
               color: #0F172A;
-              margin: 8px 0 4px 0;
+              margin: 6px 0 4px 0;
               line-height: 1.05;
               text-transform: uppercase;
             }
             .scan-subtitle {
-              font-size: 16px;
+              font-size: 14px;
               font-weight: 600;
               color: #475569;
-              margin: 0 0 18px 0;
+              margin: 0 0 12px 0;
             }
             .qr-frame {
               display: inline-flex;
               flex-direction: column;
               align-items: center;
-              padding: 24px;
-              border: 4px dashed #9E0B03;
-              border-radius: 28px;
+              padding: 16px;
+              border: 3px dashed #9E0B03;
+              border-radius: 22px;
               background-color: #FFFFFF;
               margin: 0 auto;
             }
             .qr-frame img {
-              width: 340px;
-              height: 340px;
+              width: 255px;
+              height: 255px;
               display: block;
             }
             .token-box {
-              margin-top: 18px;
+              margin-top: 12px;
               background-color: #F8FAFC;
               border: 2px solid #E2E8F0;
-              border-radius: 16px;
-              padding: 12px 28px;
+              border-radius: 14px;
+              padding: 8px 22px;
               display: inline-block;
             }
             .token-label {
-              font-size: 11px;
+              font-size: 10px;
               font-weight: 800;
               color: #64748B;
               letter-spacing: 0.08em;
               text-transform: uppercase;
             }
             .token-code {
-              font-size: 32px;
+              font-size: 26px;
               font-weight: 900;
               color: #9E0B03;
-              letter-spacing: 0.08em;
+              letter-spacing: 0.06em;
               font-family: Consolas, monospace;
               margin-top: 2px;
             }
             .steps-box {
-              margin-top: 22px;
+              margin-top: 14px;
               background-color: #FEF9E7;
               border: 1.5px solid #FDE68A;
-              border-radius: 18px;
-              padding: 18px 24px;
+              border-radius: 14px;
+              padding: 12px 18px;
               text-align: left;
             }
             .steps-title {
-              font-size: 13px;
+              font-size: 12px;
               font-weight: 900;
               color: #92400E;
               text-transform: uppercase;
               letter-spacing: 0.06em;
-              margin-bottom: 10px;
+              margin-bottom: 6px;
             }
             .step-item {
-              font-size: 14px;
+              font-size: 13px;
               font-weight: 600;
               color: #1E293B;
-              margin: 6px 0;
+              margin: 4px 0;
             }
             .footer-note {
-              font-size: 11.5px;
+              font-size: 11px;
               font-weight: 700;
               color: #64748B;
-              margin-top: 12px;
+              margin-top: 8px;
             }
           </style>
         </head>
@@ -391,7 +427,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 <div class="steps-title">How to Activate Your Queue Ticket:</div>
                 <div class="step-item"><strong>1.</strong> Open the <strong>BCMatik Mobile App</strong> on your phone and view your booked ticket.</div>
                 <div class="step-item"><strong>2.</strong> Tap <strong>"Scan Hallway QR"</strong> and point your camera at this poster (or type <strong>${token}</strong>).</div>
-                <div class="step-item"><strong>3.</strong> Your ticket will turn <strong>ACTIVE</strong>. Watch the Hallway TV Monitor for your number to be called!</div>
+                <div class="step-item"><strong>3.</strong> Your ticket will turn <strong>ACTIVE</strong>. Watch the Hallway TV Monitor for your number to be called.</div>
               </div>
               <div class="footer-note">
                 BCMatik: Queue. Guide. Serve. • Printed on ${new Date().toLocaleDateString()}
@@ -411,7 +447,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
       </html>
     `);
     printWin.document.close();
-    showToast(`Prepared full-page QR poster for ${office.office_name}.`, 'success', 'QR Poster Ready');
+    showToast(`Prepared single-page QR poster for ${office.office_name}.`, 'success', 'QR Poster Ready');
   };
 
   const openEditModal = (office) => {
@@ -749,7 +785,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                         </button>
                       </td>
                       <td>
-                        {!office.is_major ? (
+                          {!office.is_major ? (
                           <button
                             onClick={() => setCodeOffice(office)}
                             className="quest-badge badge-info"
@@ -760,14 +796,14 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                           </button>
                         ) : (
                           <button
-                            onClick={() => handlePrintOfficeQR(office)}
+                            onClick={() => setQrModalOffice(office)}
                             className="quest-badge badge-primary"
                             style={{ border: 'none', cursor: 'pointer', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            title="Click to print full-page Bond Paper Arrival QR Poster"
+                            title="Click to view, refresh, or print Hallway Arrival QR Token"
                           >
-                            <QrCode size={13} /> {getOfficeArrivalToken(office.office_name)} <Printer size={12} />
+                            <QrCode size={13} /> {getOfficeArrivalToken(office)} <Printer size={12} />
                           </button>
-                        )}
+                        )}    
                       </td>
                       <td>
                         <div className="quest-action-group">
@@ -958,49 +994,69 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
         </div>
       )}
 
-      {/* 2. UNIQUE 4-DIGIT CLEARANCE CODE MODAL */}
-      {codeOffice && (
-        <div className="quest-modal-backdrop" onClick={() => setCodeOffice(null)}>
-          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+{/* 2B. MAJOR OFFICE ARRIVAL QR TOKEN REFRESH & PRINT MODAL */}
+      {qrModalOffice && (
+        <div className="quest-modal-backdrop" onClick={() => setQrModalOffice(null)}>
+          <div className="quest-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div className="quest-modal-icon-badge primary" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
-                  <KeyRound size={22} />
+                <div className="quest-modal-icon-badge primary">
+                  <QrCode size={22} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '19px', color: '#1E293B' }}>{codeOffice.office_name} Code</h3>
-                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>Unique Office Clearance & Transition Code</p>
+                  <h3 style={{ margin: 0, fontSize: '19px', color: '#1E293B' }}>{qrModalOffice.office_name} Hallway QR</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>Dynamic Arrival Check-In QR & Token</p>
                 </div>
               </div>
-              <button onClick={() => setCodeOffice(null)} className="quest-toast-close">
+              <button onClick={() => setQrModalOffice(null)} className="quest-toast-close">
                 <X size={18} />
               </button>
             </div>
 
             <div style={{
               textAlign: 'center',
-              padding: '24px 16px',
+              padding: '20px 16px',
               backgroundColor: '#F8FAFC',
               borderRadius: '16px',
               border: '1.5px dashed #CBD5E1',
-              marginBottom: '20px'
+              marginBottom: '18px'
             }}>
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Active 4-Digit Security Code
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=${encodeURIComponent(getOfficeArrivalToken(qrModalOffice))}`}
+                alt="Office QR Preview"
+                style={{ width: '170px', height: '170px', borderRadius: '12px', border: '2px solid #9E0B03', padding: '6px', backgroundColor: '#FFFFFF' }}
+              />
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '12px' }}>
+                Active Hallway Check-In Token
               </div>
-              <div className="outfit-number" style={{ fontSize: '56px', fontWeight: 900, color: 'var(--quest-primary)', letterSpacing: '0.15em', margin: '8px 0' }}>
-                {codeOffice.clearance_code || '4892'}
+              <div className="outfit-number" style={{ fontSize: '24px', fontWeight: 900, color: 'var(--quest-primary)', letterSpacing: '0.06em', margin: '4px 0' }}>
+                {getOfficeArrivalToken(qrModalOffice)}
               </div>
-              <p style={{ fontSize: '12px', color: '#64748B', margin: 0, maxWidth: '280px', marginInline: 'auto' }}>
-                Queuers enter this 4-digit code on their mobile app to validate completion and advance to the next workflow step.
+              <p style={{ fontSize: '12px', color: '#64748B', margin: 0, maxWidth: '320px', marginInline: 'auto' }}>
+                Refreshing this token invalidates older printed QR posters so clients cannot check in remotely using old photos.
               </p>
             </div>
 
-            <div className="quest-modal-actions">
-              <button onClick={() => setCodeOffice(null)} className="quest-btn quest-btn-outline">Close</button>
-              <button onClick={() => handleRefreshClearanceCode(codeOffice)} className="quest-btn quest-btn-primary">
-                <RefreshCw size={15} /> Refresh 4-Digit Code
+            <div className="quest-modal-actions" style={{ justifyContent: 'space-between' }}>
+              <button
+                type="button"
+                onClick={() => handleRefreshArrivalQrToken(qrModalOffice)}
+                className="quest-btn quest-btn-outline"
+              >
+                <RefreshCw size={15} /> Refresh QR Token
               </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" onClick={() => setQrModalOffice(null)} className="quest-btn quest-btn-outline">
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePrintOfficeQR(qrModalOffice)}
+                  className="quest-btn quest-btn-primary"
+                >
+                  <Printer size={15} /> Print 1-Page Poster
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1070,7 +1126,7 @@ export default function OfficeManager({ setAdminSection, role = 'admin', assigne
                 <div className="quest-detail-row">
                   <span className="quest-detail-label">Arrival Check-In Token</span>
                   <code style={{ fontWeight: 800, color: 'var(--quest-primary)' }}>
-                    BC-ARRIVE-{viewingOffice.office_name.replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase()}
+                    {getOfficeArrivalToken(viewingOffice)}
                   </code>
                 </div>
               ) : (

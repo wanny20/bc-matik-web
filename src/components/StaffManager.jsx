@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, signOut as signOutSecondary } from 'firebase/auth';
 import { collection, getDocs, getDoc, doc, setDoc, updateDoc, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebaseConfig';
 import { 
-  UserPlus, Power, Mail, Building, Users, Shield, Search, X, ShieldCheck, Lock, Eye, Edit3,
+  UserPlus, Power, Mail, Building, Users, Shield, Search, X, ShieldCheck, Lock, Eye, Edit3, KeyRound,
   Download, ChevronDown, RotateCcw, FileText, FileSpreadsheet, Printer, Calendar, ArrowUpDown
 } from 'lucide-react';
 import { useUI } from './UIContext';
@@ -395,6 +395,54 @@ export default function StaffManager({ setAdminSection }) {
       showToast('Failed to update personnel account.', 'error');
     }
     setIsUpdating(false);
+  };
+const [staffResetCooldowns, setStaffResetCooldowns] = useState({});
+  const [isSendingStaffReset, setIsSendingStaffReset] = useState(false);
+
+  const handleSendStaffResetEmail = async (staffObj) => {
+    const targetMail = (staffObj?.email || '').trim().toLowerCase();
+    if (!targetMail || !targetMail.includes('@')) {
+      showToast('This account does not have a valid email address.', 'error');
+      return;
+    }
+
+    const cooldownUntil = staffResetCooldowns[targetMail] || 0;
+    const remainingSec = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    if (remainingSec > 0) {
+      const m = Math.floor(remainingSec / 60);
+      const s = remainingSec % 60;
+      showToast(
+        `Please wait ${m}m ${s}s before sending another reset email to ${targetMail}.`,
+        'warning',
+        'Cooldown Active'
+      );
+      return;
+    }
+
+    confirmAction({
+      title: 'Send Password Reset Email?',
+      message: `Send an official Firebase password reset link to ${staffObj.name} (${targetMail})?`,
+      confirmText: 'Send Reset Email',
+      variant: 'primary',
+      onConfirm: async () => {
+        setIsSendingStaffReset(true);
+        try {
+          await sendPasswordResetEmail(auth, targetMail);
+          setStaffResetCooldowns(prev => ({
+            ...prev,
+            [targetMail]: Date.now() + 5 * 60 * 1000
+          }));
+          showToast(
+            `Password reset email sent to ${targetMail}.`,
+            'success',
+            'Reset Link Dispatched'
+          );
+        } catch (err) {
+          showToast('Failed to send password reset email. Verify Firebase Auth account.', 'error');
+        }
+        setIsSendingStaffReset(false);
+      }
+    });
   };
 
   const handleToggleMiniAdmin = async (staff) => {
@@ -1108,7 +1156,34 @@ export default function StaffManager({ setAdminSection }) {
                 <label className="staff-label">Email Address (Read-Only)</label>
                 <input type="text" className="quest-input" value={editingStaff.email} readOnly style={{ backgroundColor: '#F1F5F9', color: '#64748B' }} />
               </div>
-
+                    <div className="staff-form-group">
+                <label className="staff-label">Password Recovery (Firebase Authentication)</label>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '10px 14px',
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '10px'
+                }}>
+                  <div style={{ fontSize: '11.5px', color: '#64748B', lineHeight: 1.4 }}>
+                    Staff passwords are encrypted in Firebase Auth. Send a secure reset link to <strong>{editingStaff.email}</strong>.
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSendingStaffReset}
+                    onClick={() => handleSendStaffResetEmail(editingStaff)}
+                    className="quest-btn quest-btn-outline"
+                    style={{ whiteSpace: 'nowrap', padding: '7px 12px', fontSize: '12px', fontWeight: 800, backgroundColor: '#FFFFFF' }}
+                  >
+                    <KeyRound size={14} color="var(--quest-primary)" />
+                    {isSendingStaffReset ? 'Sending...' : 'Send Reset Link'}
+                  </button>
+                </div>
+              </div>
+              
               <div className="staff-form-group">
                 <label className="staff-label">
                   Privilege Level / Role <span className="quest-req-star">*</span>
