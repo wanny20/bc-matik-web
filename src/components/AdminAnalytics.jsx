@@ -7,11 +7,21 @@ import { SkeletonBlock } from './Skeleton';
 import { useUI } from './UIContext';
 import './AdminAnalytics.css';
 
-// Strips priority suffix tags like "[Senior Citizen (OSCA ID)]" so transaction metrics group cleanly
+// Groups legacy walk-in and general inquiry variations into one clean metric row
 const normalizeTransactionName = (rawPurpose = '') => {
-  return String(rawPurpose || 'General Inquiry')
+  const cleaned = String(rawPurpose || 'General Inquiry')
     .replace(/\s*\[.*?\]\s*$/, '')
-    .trim() || 'General Inquiry';
+    .trim();
+  const lower = cleaned.toLowerCase();
+  if (
+    !cleaned ||
+    lower.includes('general inquiry') ||
+    lower.includes('walk-in') ||
+    lower.endsWith(' visit')
+  ) {
+    return 'General / Walk-In Inquiry';
+  }
+  return cleaned;
 };
 
 // Reads Firestore timestamp whether stored nested (t.timestamps.x) or dotted (t["timestamps.x"])
