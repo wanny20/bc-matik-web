@@ -74,27 +74,49 @@ export default function AdminAnalytics() {
     return new Date(ms);
   };
 
-  // Helper to count actively open windows for an office (falls back to configured windows count)
-  const getEffectiveOpenWindows = (officeObj) => {
-    if (!officeObj) return 1;
-    const wins = Array.isArray(officeObj.windows) && officeObj.windows.length > 0 ? officeObj.windows : ['Window 1'];
+  // Returns exact live open windows, total configured windows, and safe EWT divisor
+  const getOfficeWindowTelemetry = (officeObj) => {
+    if (!officeObj) {
+      return { isMajor: false, openCount: 0, totalCount: 0, divisor: 1 };
+    }
+    if (officeObj.is_major === false) {
+      return { isMajor: false, openCount: 0, totalCount: 0, divisor: 1 };
+    }
+    const wins = Array.isArray(officeObj.windows) ? officeObj.windows : [];
+    const totalCount = wins.length;
     const locks = officeObj.active_window_operators || {};
     const nowMs = Date.now();
     const openCount = wins.filter((w) => {
       const entry = locks[w];
       return entry && entry.operator_id && nowMs - (entry.heartbeat_ms || 0) <= 2 * 60 * 1000;
     }).length;
-    return openCount > 0 ? openCount : Math.max(1, wins.length);
+
+    return {
+      isMajor: true,
+      openCount,
+      totalCount,
+      divisor: openCount > 0 ? openCount : Math.max(1, totalCount)
+    };
   };
 
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
 
-  // 1. Filter tickets by selected Time Range & ignore blank legacy records without an office
+  // Build set of currently registered office names so deleted offices (like TEST01) never appear
+  const activeOfficeNamesLower = new Set(
+    offices
+      .map(o => (o.office_name || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  // 1. Filter tickets by selected Time Range & strictly require the office to still exist in Registered Offices
   const validTickets = tickets.filter(t => {
-    const hasValidOffice = t.target_office_id && t.target_office_id.trim() !== '' && t.target_office_id !== 'Unknown';
-    if (!hasValidOffice) return false;
+    const offName = (t.target_office_id || '').trim();
+    if (!offName || offName === 'Unknown') return false;
+    if (activeOfficeNamesLower.size > 0 && !activeOfficeNamesLower.has(offName.toLowerCase())) {
+      return false;
+    }
 
     if (timeRange === 'ALL') return true;
     const d = getTicketDate(t);
@@ -202,7 +224,6 @@ export default function AdminAnalytics() {
       if (startMs && compMs > startMs) {
         const rawProcMins = (compMs - startMs) / 1000 / 60;
         if (rawProcMins > 0 && rawProcMins <= 180) {
-          // Clamps fast demo test clicks (<30s) to a minimum 0.5m sample so live averages always register
           const effectiveProcMins = Math.max(0.5, rawProcMins);
           officeStatsMap[offName].procTime += effectiveProcMins;
           officeStatsMap[offName].procCount += 1;
@@ -220,11 +241,13 @@ export default function AdminAnalytics() {
     ? Number((totalProcessingMins / validProcessingCount).toFixed(1))
     : 4.0;
 
-  // Build Per-Transaction APT & EWT Table Rows
+  // Build Per-Transaction APT & EWT Table Rows (Strictly for Active Registered Offices)
   const transactionMetricsList = Object.values(transactionStatsMap)
     .map(item => {
-      const matchedOffice = offices.find(o => o.office_name === item.office);
-      const openWins = getEffectiveOpenWindows(matchedOffice);
+      const matchedOffice = offices.find(
+        o => (o.office_name || '').trim().toLowerCase() === item.office.toLowerCase()
+      );
+      const winTelemetry = getOfficeWindowTelemetry(matchedOffice);
       const officeStat = officeStatsMap[item.office];
       const officeFallbackApt = officeStat && officeStat.procCount > 0
         ? officeStat.procTime / officeStat.procCount
@@ -236,14 +259,16 @@ export default function AdminAnalytics() {
         : officeFallbackApt;
 
       // If 0 people are waiting in line, EWT for the next client is 0 mins (Immediate)!
-      // Otherwise EWT = ceil((activeWaiting * aptMins) / openWins)
+      // Otherwise EWT = ceil((activeWaiting * aptMins) / divisor)
       const ewtMins = item.activeWaiting === 0
         ? 0
-        : Math.max(1, Math.ceil((item.activeWaiting * aptMins) / openWins));
+        : Math.max(1, Math.ceil((item.activeWaiting * aptMins) / winTelemetry.divisor));
 
       return {
         ...item,
-        openWindows: openWins,
+        isMajor: winTelemetry.isMajor,
+        openWindows: winTelemetry.openCount,
+        totalWindows: winTelemetry.totalCount,
         aptDisplay: Number(aptMins.toFixed(1)),
         ewtDisplay: ewtMins,
         hasHistoricalSample: item.procCount > 0
@@ -252,7 +277,7 @@ export default function AdminAnalytics() {
     .sort((a, b) => b.total - a.total);
 
   const chartData = Object.values(officeStatsMap)
-    .filter(stat => stat.total > 0 || offices.some(o => o.office_name === stat.name))
+    .filter(stat => offices.some(o => (o.office_name || '').trim().toLowerCase() === stat.name.toLowerCase()))
     .map(stat => ({
       name: stat.name,
       Volume: stat.total,
@@ -370,11 +395,11 @@ export default function AdminAnalytics() {
           </div>
           <div className="analytics-office-strip-grid">
             {offices.map(off => {
-              const offTickets = tickets.filter(t => t.target_office_id === off.office_name);
+              const offTickets = validTickets.filter(t => t.target_office_id === off.office_name);
               const nowServing = offTickets.find(t => t.status === 'called');
               const waitingTickets = offTickets.filter(t => ['active', 'resolved_requirements'].includes(t.status));
               const waitingCount = waitingTickets.length;
-              const openWins = getEffectiveOpenWindows(off);
+              const winTelemetry = getOfficeWindowTelemetry(off);
 
               // Sum per-transaction APT for all waiting tickets in this office
               const totalWorkloadMins = waitingTickets.reduce((acc, t) => {
@@ -383,7 +408,7 @@ export default function AdminAnalytics() {
                 const apt = txStat && txStat.procCount > 0 ? txStat.procTimeSum / txStat.procCount : 4.0;
                 return acc + apt;
               }, 0);
-              const liveOfficeEwt = waitingCount === 0 ? 0 : Math.max(1, Math.ceil(totalWorkloadMins / openWins));
+              const liveOfficeEwt = waitingCount === 0 ? 0 : Math.max(1, Math.ceil(totalWorkloadMins / winTelemetry.divisor));
 
               return (
                 <div key={off.id} className="analytics-office-mini-card">
@@ -397,8 +422,10 @@ export default function AdminAnalytics() {
                     <span style={{ color: '#64748B', fontWeight: 600 }}>
                       {nowServing ? (
                         <>Serving: <strong style={{ color: 'var(--quest-primary)' }}>{nowServing.queue_number}</strong></>
+                      ) : !winTelemetry.isMajor ? (
+                        'Direct Clearance'
                       ) : (
-                        'Counter Idle'
+                        `${winTelemetry.openCount}/${winTelemetry.totalCount} Window(s) Open`
                       )}
                     </span>
                     <span style={{ fontWeight: 700, color: waitingCount > 0 ? '#B45309' : '#64748B' }}>
@@ -529,7 +556,7 @@ export default function AdminAnalytics() {
               {transactionMetricsList.length === 0 ? (
                 <tr>
                   <td colSpan="7" style={{ textAlign: 'center', padding: '28px', color: '#94A3B8' }}>
-                    No transaction telemetry recorded for this period yet.
+                    No transaction telemetry recorded for active registered offices yet.
                   </td>
                 </tr>
               ) : (
@@ -555,8 +582,12 @@ export default function AdminAnalytics() {
                     <td style={{ fontWeight: 700, color: row.activeWaiting > 0 ? '#D97706' : '#64748B' }}>
                       {row.activeWaiting} in line
                     </td>
-                    <td style={{ fontWeight: 700, color: '#0F172A' }}>
-                      {row.openWindows} window(s)
+                    <td style={{ fontWeight: 700, color: row.openWindows > 0 ? '#15803D' : '#64748B' }}>
+                      {!row.isMajor
+                        ? 'Direct Clearance'
+                        : row.totalWindows === 0
+                          ? '0 windows'
+                          : `${row.openWindows} of ${row.totalWindows} open`}
                     </td>
                     <td>
                       <span
