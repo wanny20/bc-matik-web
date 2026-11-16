@@ -651,7 +651,7 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
     }
   };
 
-  const handleRecallDocument = async (ticket) => {
+const handleRecallDocument = async (ticket) => {
     const recalledAt = new Date();
     const expiresAt = new Date(recalledAt.getTime() + CLAIM_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
     try {
@@ -677,22 +677,39 @@ export default function StaffDashboard({ assignedOffice = "Registrar" }) {
         is_read: false
       });
 
+      // Resolve Email for either Registered Student (if alerts enabled) or Walk-In Guest
+      let recipientEmail = (ticket.guest_email || "").trim();
+      let recipientName = ticket.student_name || "Client";
+
       if (ticket.student_id && !ticket.student_id.startsWith("GUEST") && ticket.student_id !== "WALK-IN") {
         const sSnap = await getDoc(doc(db, "students", ticket.student_id));
         if (sSnap.exists()) {
           const sData = sSnap.data();
+          recipientName = sData.name || recipientName;
           if (sData.email_notifications_enabled && sData.email) {
-            await sendAutomatedClientEmail({
-              toEmail: sData.email,
-              toName: sData.name || ticket.student_name,
-              subject: `BCMatik Document Ready: ${ticket.transaction_purpose} (${assignedOffice})`,
-              htmlContent: `<p>Hello <b>${sData.name || ticket.student_name}</b>,</p><p>Your requested document (<b>${ticket.transaction_purpose}</b>, Ticket <b>${ticket.queue_number}</b>) is now <b>Ready for Pickup</b> at <b>${assignedOffice}</b>. Please claim it within ${CLAIM_VALIDITY_DAYS} days.</p>`
-            });
+            recipientEmail = sData.email.trim();
+          } else {
+            recipientEmail = "";
           }
         }
       }
 
-      showToast(`Notified ${ticket.queue_number} (${ticket.student_name || 'Student'}) via App & Email that documents are ready!`, "success", "Release Alert Sent");
+      if (recipientEmail && recipientEmail.includes("@")) {
+        await sendAutomatedClientEmail({
+          toEmail: recipientEmail,
+          toName: recipientName,
+          subject: `BCMatik Document Ready: ${ticket.transaction_purpose} (${assignedOffice})`,
+          htmlContent: `<p>Hello <b>${recipientName}</b>,</p><p>Your requested document (<b>${ticket.transaction_purpose}</b>, Ticket <b>${ticket.queue_number}</b>) is now <b>Ready for Pickup</b> at <b>${assignedOffice} (${selectedWindow})</b>. Please claim it within ${CLAIM_VALIDITY_DAYS} days.</p>`
+        });
+      }
+
+      showToast(
+        recipientEmail
+          ? `Notified ${ticket.queue_number} via App & Email (${recipientEmail}) that documents are ready!`
+          : `Notified ${ticket.queue_number} (${ticket.student_name || 'Student'}) in-app that documents are ready!`,
+        "success",
+        "Release Alert Sent"
+      );
     } catch (e) {
       showToast("Failed to recall document.", "error");
     }
